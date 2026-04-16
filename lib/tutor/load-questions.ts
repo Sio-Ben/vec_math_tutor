@@ -23,7 +23,7 @@ function formatPostgrestError(err: {
   return parts.join(" · ");
 }
 
-async function getSupabaseForQuestions() {
+export async function getSupabaseForQuestions() {
   if (process.env.SUPABASE_SERVICE_ROLE_KEY?.trim()) {
     return createSupabaseAdminClient();
   }

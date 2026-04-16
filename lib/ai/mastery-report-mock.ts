@@ -3,6 +3,7 @@ import type { MasteryReportRequestBody, MasteryReportV2 } from "@/lib/progress/t
 /** 未接 LLM 時的示範輸出；之後改為解析模型 JSON。 */
 export function mockMasteryReportV2(body: MasteryReportRequestBody): MasteryReportV2 {
   const n = body.practiceEvents.length;
+  const batches = body.batchReports ?? [];
   const weak =
     body.diagnostic?.report.weak_topics
       ?.map((w) => w.topic_tag)
@@ -10,6 +11,7 @@ export function mockMasteryReportV2(body: MasteryReportRequestBody): MasteryRepo
 
   const narrative =
     `【示範框架】目前已累積 **${n}** 筆練習紀錄。` +
+    (batches.length > 0 ? ` 已完成 **${batches.length}** 組 5 題小結。` : "") +
     (body.diagnostic
       ? ` 診斷整體層級為 **${body.diagnostic.report.overall_level}**（掌握分 ${body.diagnostic.report.mastery_score}）。`
       : " 尚未偵測到診斷資料，建議先完成診斷問卷。") +
@@ -28,6 +30,31 @@ export function mockMasteryReportV2(body: MasteryReportRequestBody): MasteryRepo
   const recommendedTopicOrder = [
     ...new Set([...weak, ...Object.keys(topicScores)]),
   ];
+  const levels = ["L1", "L2", "L3", "L4"] as const;
+  type Level = (typeof levels)[number];
+  const prev = body.previousReport?.recommendedDifficulty;
+  const diagnosticLevel = body.diagnostic?.report.overall_level;
+  const baseLevel: Level =
+    prev === "L1" || prev === "L2" || prev === "L3" || prev === "L4"
+      ? prev
+      : diagnosticLevel === "L1" ||
+          diagnosticLevel === "L2" ||
+          diagnosticLevel === "L3" ||
+          diagnosticLevel === "L4"
+        ? diagnosticLevel
+        : "L2";
+  const latestAdvice = batches[batches.length - 1]?.difficultyAdvice;
+  const lastTwoDown =
+    batches.length >= 2 &&
+    batches[batches.length - 1]?.difficultyAdvice === "down" &&
+    batches[batches.length - 2]?.difficultyAdvice === "down";
+  const idx = levels.indexOf(baseLevel);
+  let recommendedDifficulty: Level = baseLevel;
+  if (latestAdvice === "up") {
+    recommendedDifficulty = levels[Math.min(levels.length - 1, idx + 1)];
+  } else if (latestAdvice === "down" && lastTwoDown) {
+    recommendedDifficulty = levels[Math.max(0, idx - 1)];
+  }
 
   return {
     narrative,
@@ -36,5 +63,6 @@ export function mockMasteryReportV2(body: MasteryReportRequestBody): MasteryRepo
     generatedAt: new Date().toISOString(),
     basedOnPracticeEventCount: n,
     modelNote: "mock_v0",
+    recommendedDifficulty,
   };
 }

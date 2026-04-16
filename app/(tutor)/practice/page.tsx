@@ -1,19 +1,33 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { InlineLatex, TutorMixedContent } from "@/components/MathText";
+import { MathLiveInput } from "@/components/MathLiveInput";
 import { DIAGNOSTIC_STORAGE_KEY } from "@/lib/diagnostic-types";
 import type { ClientReport } from "@/lib/report-from-results";
-import { PRACTICE_EVENTS_STORAGE_KEY } from "@/lib/progress/storage-keys";
-import type { PracticeEvent } from "@/lib/progress/types";
-import { stemToPlainWithLatex } from "@/lib/ai/prompt-b";
+import {
+  MASTERY_REPORT_V2_STORAGE_KEY,
+  PRACTICE_ACTIVE_BATCH_STORAGE_KEY,
+  PRACTICE_BATCH_REPORTS_STORAGE_KEY,
+  PRACTICE_EVENTS_STORAGE_KEY,
+  PRACTICE_SESSION_STORAGE_KEY,
+} from "@/lib/progress/storage-keys";
+import {
+  buildPracticeSessionFingerprint,
+  clearPracticeSession,
+  readPracticeSession,
+  writePracticeSession,
+} from "@/lib/practice/practice-session-cache";
+import type { MasteryReportV2, PracticeEvent } from "@/lib/progress/types";
 import type {
+  BatchQuestionAttempt,
+  BatchReport,
   TutorChatResponse,
   TutorChatTurn,
   TutorDiagnosticContext,
 } from "@/lib/tutor/types";
-import { isPracticeAnswerCorrect } from "@/lib/tutor/evaluate-practice";
 import {
   PRACTICE_QUESTIONS,
   type PracticeQuestion,
@@ -124,6 +138,57 @@ function appendPracticeEvent(ev: PracticeEvent) {
   }
 }
 
+function readPracticeEvents(): PracticeEvent[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = sessionStorage.getItem(PRACTICE_EVENTS_STORAGE_KEY) || "[]";
+    const arr = JSON.parse(raw) as PracticeEvent[];
+    return Array.isArray(arr) ? arr : [];
+  } catch {
+    return [];
+  }
+}
+
+function reorderBySolvedHistory(
+  questions: PracticeQuestion[],
+  events: PracticeEvent[],
+): PracticeQuestion[] {
+  if (questions.length <= 1) return questions;
+  const solved = new Set(
+    events.map((e) => e.questionId?.trim()).filter((id): id is string => Boolean(id)),
+  );
+  if (solved.size === 0) return questions;
+  const unseen = questions.filter((q) => !solved.has(q.id));
+  const seen = questions.filter((q) => solved.has(q.id));
+  return [...unseen, ...seen];
+}
+
+function readCompletedBatchCount(): number {
+  if (typeof window === "undefined") return 0;
+  try {
+    const raw = sessionStorage.getItem(PRACTICE_BATCH_REPORTS_STORAGE_KEY) ?? "[]";
+    const arr = JSON.parse(raw) as Array<{ batchId?: string }>;
+    if (!Array.isArray(arr)) return 0;
+    const ids = new Set(arr.map((r) => r.batchId).filter((id): id is string => Boolean(id)));
+    return ids.size;
+  } catch {
+    return 0;
+  }
+}
+
+function readLatestBatchRecommendedLevel(): "L1" | "L2" | "L3" | "L4" | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = sessionStorage.getItem(PRACTICE_BATCH_REPORTS_STORAGE_KEY) ?? "[]";
+    const arr = JSON.parse(raw) as Array<{ recommendedLevel?: unknown }>;
+    if (!Array.isArray(arr) || arr.length === 0) return null;
+    const v = arr[arr.length - 1]?.recommendedLevel;
+    return v === "L1" || v === "L2" || v === "L3" || v === "L4" ? v : null;
+  } catch {
+    return null;
+  }
+}
+
 function initialQuestionState() {
   return {
     selected: null as string | null,
@@ -139,6 +204,7 @@ function initialQuestionState() {
 type LoadState = "loading" | "ready" | "error";
 
 export default function PracticePage() {
+  const router = useRouter();
   const [list, setList] = useState<PracticeQuestion[]>(PRACTICE_QUESTIONS);
   const [loadState, setLoadState] = useState<LoadState>("loading");
   const [loadNote, setLoadNote] = useState<string | null>(null);
@@ -155,20 +221,93 @@ export default function PracticePage() {
   const [hintPanelVisible, setHintPanelVisible] = useState(false);
   const [pending, setPending] = useState(false);
   const [hintPending, setHintPending] = useState(false);
+  const [nextPending, setNextPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [tutorNotice, setTutorNotice] = useState<string | null>(null);
-  const [lastQuestionRecap, setLastQuestionRecap] = useState<string | null>(
-    null,
-  );
-  const [recapLoading, setRecapLoading] = useState(false);
   const [thoughtSubmitCount, setThoughtSubmitCount] = useState(0);
   const [tutorTurns, setTutorTurns] = useState<TutorChatTurn[]>([]);
+  const [batchAttempts, setBatchAttempts] = useState<BatchQuestionAttempt[]>([]);
+  const [currentBatchId, setCurrentBatchId] = useState("");
+  const [currentBatchIndex, setCurrentBatchIndex] = useState(0);
+  const [totalSolvedCount, setTotalSolvedCount] = useState(0);
+  const [uniqueSolvedCount, setUniqueSolvedCount] = useState(0);
+  const [loadToken, setLoadToken] = useState(0);
+  const persistTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      try {
+        globalThis.window?.mathVirtualKeyboard?.hide({ animate: false });
+      } catch {
+        /* ignore */
+      }
+    };
+  }, []);
+
+  function readMasterySummary(): Pick<
+    MasteryReportV2,
+    "topicScores" | "recommendedTopicOrder" | "recommendedDifficulty"
+  > | null {
+    if (typeof window === "undefined") return null;
+    try {
+      const raw = sessionStorage.getItem(MASTERY_REPORT_V2_STORAGE_KEY);
+      if (!raw) return null;
+      const m = JSON.parse(raw) as MasteryReportV2;
+      const latestBatchLevel = readLatestBatchRecommendedLevel();
+      return {
+        topicScores: m.topicScores ?? {},
+        recommendedTopicOrder: m.recommendedTopicOrder ?? [],
+        recommendedDifficulty: latestBatchLevel ?? m.recommendedDifficulty,
+      };
+    } catch {
+      const latestBatchLevel = readLatestBatchRecommendedLevel();
+      if (!latestBatchLevel) return null;
+      return {
+        topicScores: {},
+        recommendedTopicOrder: [],
+        recommendedDifficulty: latestBatchLevel,
+      };
+    }
+  }
 
   useEffect(() => {
     let cancelled = false;
-    (async () => {
+    const tags = readWeakTopicTagsFromDiagnostic();
+    const masteryRaw =
+      typeof window !== "undefined"
+        ? sessionStorage.getItem(MASTERY_REPORT_V2_STORAGE_KEY) ?? ""
+        : "";
+    const fp = buildPracticeSessionFingerprint(tags, masteryRaw);
+    const cached = readPracticeSession(PRACTICE_SESSION_STORAGE_KEY, fp);
+    const events = readPracticeEvents();
+    setTotalSolvedCount(events.length);
+    setUniqueSolvedCount(new Set(events.map((e) => e.questionId)).size);
+    if (cached && !cached.finished && cached.currentBatchId.trim()) {
+      setList(cached.questions);
+      setQuestionIndex(cached.questionIndex);
+      setCurrentBatchId(cached.currentBatchId);
+      setCurrentBatchIndex(cached.currentBatchIndex ?? readCompletedBatchCount());
+      setBatchAttempts(cached.batchAttempts);
+      setFinished(false);
+      setLoadNote(cached.loadNote);
+      setSelected(cached.selected);
+      setFillInput(cached.fillInput);
+      setThought(cached.thought);
+      setTutorVisible(cached.tutorVisible);
+      setTutorText(cached.tutorText);
+      setHintsThrough(cached.hintsThrough);
+      setHintPanelVisible(cached.hintPanelVisible);
+      setThoughtSubmitCount(cached.thoughtSubmitCount);
+      setTutorTurns(cached.tutorTurns);
+      setLoadState("ready");
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    setLoadState("loading");
+    void (async () => {
       try {
-        const tags = readWeakTopicTagsFromDiagnostic();
         const qs =
           tags.length > 0
             ? `?prioritize=${encodeURIComponent(tags.join(","))}`
@@ -184,6 +323,7 @@ export default function PracticePage() {
         if (data.questions?.length) {
           let finalQuestions = data.questions;
           const aiNotes: string[] = [];
+          let generatedCount = 0;
           const report = readDiagnosticReport();
           if (report) {
             try {
@@ -193,10 +333,11 @@ export default function PracticePage() {
                 body: JSON.stringify({
                   report,
                   questions: data.questions,
+                  masterySummary: readMasterySummary(),
                   options: {
                     minWeakTopicCoverage: 1,
-                    minTotalQuestions: 4,
-                    maxGenerate: 5,
+                    minTotalQuestions: 5,
+                    maxGenerate: 20,
                   },
                 }),
               });
@@ -211,13 +352,9 @@ export default function PracticePage() {
                   };
                 };
                 if (j.questions?.length) finalQuestions = j.questions;
+                generatedCount = j.meta?.generatedCount ?? 0;
                 if (j.meta?.orderedByAi) {
                   aiNotes.push("已由 DeepSeek 依掌握報告調整練習題順序。");
-                }
-                if ((j.meta?.generatedCount ?? 0) > 0) {
-                  aiNotes.push(
-                    `已依報告與題庫風格補上 ${j.meta!.generatedCount} 題 AI 新題。`,
-                  );
                 }
                 if (j.meta?.skippedReason === "no_deepseek_key") {
                   aiNotes.push("未偵測到 DeepSeek 金鑰，已略過 AI 排序與補題。");
@@ -230,7 +367,18 @@ export default function PracticePage() {
               /* 維持原題序 */
             }
           }
+          finalQuestions = reorderBySolvedHistory(finalQuestions, events);
+          const visibleAiInBatch = finalQuestions
+            .slice(0, 5)
+            .filter((q) => q.source === "ai").length;
+          if (generatedCount > 0 && visibleAiInBatch > 0) {
+            aiNotes.push(
+              `已依報告與題庫風格補上 ${generatedCount} 題 AI 新題（本組可見 ${visibleAiInBatch} 題）。`,
+            );
+          }
           setList(finalQuestions);
+          setCurrentBatchId(`batch-${Date.now()}`);
+          setCurrentBatchIndex(readCompletedBatchCount());
           const prioNote =
             data.prioritize && data.prioritize.length > 0
               ? `已依診斷弱項優先排序：${data.prioritize.join("、")}。`
@@ -245,13 +393,17 @@ export default function PracticePage() {
             [baseNote, ...aiNotes].filter(Boolean).join(" ") || null,
           );
         } else {
-          setList(PRACTICE_QUESTIONS);
+          setList(reorderBySolvedHistory(PRACTICE_QUESTIONS, events));
+          setCurrentBatchId(`batch-${Date.now()}`);
+          setCurrentBatchIndex(readCompletedBatchCount());
           setLoadNote(data.warning ?? "使用本機示範題");
         }
-        setLoadState("ready");
+        if (!cancelled) setLoadState("ready");
       } catch {
         if (!cancelled) {
-          setList(PRACTICE_QUESTIONS);
+          setList(reorderBySolvedHistory(PRACTICE_QUESTIONS, events));
+          setCurrentBatchId(`batch-${Date.now()}`);
+          setCurrentBatchIndex(readCompletedBatchCount());
           setLoadNote("無法載入題庫 API，使用本機示範題");
           setLoadState("error");
         }
@@ -260,9 +412,61 @@ export default function PracticePage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [loadToken]);
 
-  const total = list.length;
+  useEffect(() => {
+    if (loadState !== "ready" || finished || !currentBatchId) return;
+    const tags = readWeakTopicTagsFromDiagnostic();
+    const masteryRaw = sessionStorage.getItem(MASTERY_REPORT_V2_STORAGE_KEY) ?? "";
+    const fp = buildPracticeSessionFingerprint(tags, masteryRaw);
+    if (persistTimer.current) clearTimeout(persistTimer.current);
+    persistTimer.current = setTimeout(() => {
+      writePracticeSession(PRACTICE_SESSION_STORAGE_KEY, {
+        v: 2,
+        fingerprint: fp,
+        questions: list,
+        questionIndex,
+        currentBatchId,
+        currentBatchIndex,
+        batchAttempts,
+        finished: false,
+        loadNote,
+        selected,
+        fillInput,
+        thought,
+        tutorVisible,
+        tutorText,
+        hintsThrough,
+        hintPanelVisible,
+        thoughtSubmitCount,
+        tutorTurns,
+      });
+    }, 450);
+    return () => {
+      if (persistTimer.current) clearTimeout(persistTimer.current);
+    };
+  }, [
+    loadState,
+    finished,
+    currentBatchId,
+    currentBatchIndex,
+    list,
+    questionIndex,
+    batchAttempts,
+    loadNote,
+    selected,
+    fillInput,
+    thought,
+    tutorVisible,
+    tutorText,
+    hintsThrough,
+    hintPanelVisible,
+    thoughtSubmitCount,
+    tutorTurns,
+  ]);
+
+  const BATCH_SIZE = 5;
+  const total = Math.min(BATCH_SIZE, list.length);
   const q: PracticeQuestion | undefined = list[questionIndex];
   const progressPct = total > 0 ? ((questionIndex + 1) / total) * 100 : 0;
   const isLast = total > 0 && questionIndex >= total - 1;
@@ -294,69 +498,120 @@ export default function PracticePage() {
     setError(null);
   }, []);
 
+  const reloadQuestions = useCallback(() => {
+    clearPracticeSession(PRACTICE_SESSION_STORAGE_KEY);
+    setBatchAttempts([]);
+    setFinished(false);
+    setCurrentBatchId("");
+    setCurrentBatchIndex(readCompletedBatchCount());
+    resetToQuestion(0);
+    const events = readPracticeEvents();
+    setTotalSolvedCount(events.length);
+    setUniqueSolvedCount(new Set(events.map((e) => e.questionId)).size);
+    setLoadToken((t) => t + 1);
+  }, [resetToQuestion]);
+
   const goNextQuestion = useCallback(async () => {
-    if (!canAdvance || !q || recapLoading) return;
+    if (!canAdvance || !q || nextPending) return;
+    const thoughtHistory = [
+      ...tutorTurns
+        .filter((t) => t.role === "user")
+        .map((t) => t.content.trim())
+        .filter(Boolean),
+      thought.trim(),
+    ];
+    const dedupThoughtHistory = [...new Set(thoughtHistory)].slice(-8);
+    const attempt: BatchQuestionAttempt = {
+      questionId: q.id,
+      questionStemPlain: q.stemLatex.map((s) => (s.t === "text" ? s.v : `$${s.m}$`)).join(""),
+      topicTag: q.topicTag,
+      topicLabel: q.unitPill ?? q.topicTag ?? "向量",
+      kind: q.kind,
+      difficulty: q.difficulty,
+      isAiGenerated: q.source === "ai",
+      selectedChoice: selected,
+      expectedChoiceKey: q.kind === "mcq" ? q.correctKey : null,
+      studentFillAnswer: q.kind === "fill" ? fillInput.trim() : null,
+      expectedFillAnswer: q.kind === "fill" ? q.fillAnswer ?? null : null,
+      thoughtSummary: thought.trim(),
+      thoughtHistory: dedupThoughtHistory,
+      hintsUnlockedLayerMax: hintsThrough,
+    };
 
-    const correct = isPracticeAnswerCorrect(
-      q,
-      selected,
-      q.kind === "fill" ? fillInput : null,
-    );
-    const studentAns =
-      q.kind === "mcq"
-        ? `選項 ${selected ?? "（未選）"}`
-        : fillInput.trim() || "（未填）";
-    const stdAns =
-      q.kind === "mcq"
-        ? `選項 ${q.correctKey}`
-        : (q.fillAnswer?.trim() || "（題庫未設標準答案）");
-
-    setRecapLoading(true);
-    let recapText: string | null = null;
-    try {
-      const r = await fetch("/api/tutor/question-recap", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          questionId: q.id,
-          questionStemPlain: stemToPlainWithLatex(q),
-          topicLabel: q.unitPill ?? q.topicTag ?? "向量",
-          kind: q.kind,
-          studentAnswerSummary: studentAns,
-          standardAnswerSummary: stdAns,
-          isCorrect: correct,
-          thoughtSummary: thought.trim(),
-          lastTutorReply: tutorVisible && tutorText.trim() ? tutorText.trim() : null,
-          hintsUnlockedLayerMax: hintsThrough,
-        }),
-      });
-      if (r.ok) {
-        const j = (await r.json()) as { recap?: string | null };
-        if (j.recap?.trim()) recapText = j.recap.trim();
-      }
-    } catch {
-      /* 略過小結 */
-    } finally {
-      setRecapLoading(false);
-    }
-
+    const nextAttempts = [...batchAttempts, attempt];
     appendPracticeEvent({
       questionId: q.id,
+      batchId: currentBatchId,
+      batchIndex: currentBatchIndex,
       topicTag: q.topicTag,
+      difficulty: q.difficulty,
+      isAiGenerated: q.source === "ai",
       at: new Date().toISOString(),
       completed: true,
       maxHintLayer: hintsThrough,
       hadThoughtSubmit: thought.trim().length > 0,
+      studentAnswerRaw:
+        q.kind === "mcq"
+          ? (selected ?? "（未選）")
+          : (fillInput.trim() || "（未填）"),
     });
+    const eventsAfter = readPracticeEvents();
+    setTotalSolvedCount(eventsAfter.length);
+    setUniqueSolvedCount(new Set(eventsAfter.map((e) => e.questionId)).size);
 
+    setNextPending(true);
     if (isLast) {
-      setLastQuestionRecap(recapText);
+      try {
+        const r = await fetch("/api/practice/batch-report", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            batchId: currentBatchId,
+            batchIndex: currentBatchIndex,
+            attempts: nextAttempts,
+            baselineLevel:
+              readMasterySummary()?.recommendedDifficulty ??
+              readDiagnosticReport()?.recommended_start_level ??
+              null,
+          }),
+        });
+        let report: BatchReport | null = null;
+        if (r.ok) {
+          const data = (await r.json()) as { report?: BatchReport };
+          report = data.report ?? null;
+        }
+        sessionStorage.setItem(
+          PRACTICE_ACTIVE_BATCH_STORAGE_KEY,
+          JSON.stringify({
+            batchId: currentBatchId,
+            batchIndex: currentBatchIndex,
+            attempts: nextAttempts,
+            report,
+            generatedAt: new Date().toISOString(),
+          }),
+        );
+      } catch {
+        sessionStorage.setItem(
+          PRACTICE_ACTIVE_BATCH_STORAGE_KEY,
+          JSON.stringify({
+            batchId: currentBatchId,
+            batchIndex: currentBatchIndex,
+            attempts: nextAttempts,
+            report: null,
+            generatedAt: new Date().toISOString(),
+          }),
+        );
+      }
+      clearPracticeSession(PRACTICE_SESSION_STORAGE_KEY);
+      setBatchAttempts(nextAttempts);
       setFinished(true);
+      router.push("/practice/report");
       return;
     }
 
-    setLastQuestionRecap(recapText);
+    setBatchAttempts(nextAttempts);
     resetToQuestion(questionIndex + 1);
+    setNextPending(false);
   }, [
     canAdvance,
     q,
@@ -365,11 +620,13 @@ export default function PracticePage() {
     resetToQuestion,
     hintsThrough,
     thought,
-    recapLoading,
+    nextPending,
     selected,
     fillInput,
-    tutorVisible,
-    tutorText,
+    batchAttempts,
+    currentBatchId,
+    currentBatchIndex,
+    router,
   ]);
 
   const submitThought = useCallback(async () => {
@@ -503,7 +760,6 @@ export default function PracticePage() {
     setTutorTurns([]);
     setHintsThrough(-1);
     setHintPanelVisible(false);
-    setLastQuestionRecap(null);
   }, []);
 
   if (loadState === "loading" || !q) {
@@ -521,26 +777,13 @@ export default function PracticePage() {
           本輪練習完成
         </h1>
         <p className="text-center text-sm text-zinc-400">你已做完 {total} 題。</p>
-        {lastQuestionRecap && (
-          <section className="rounded-2xl border border-emerald-600/35 bg-emerald-50/95 p-4 sm:p-5">
-            <h2 className="text-sm font-semibold text-emerald-950">最後一題小結</h2>
-            <div className="mt-2">
-              <TutorMixedContent text={lastQuestionRecap} />
-            </div>
-          </section>
-        )}
         <div className="flex flex-wrap justify-center gap-3">
-          <button
-            type="button"
-            onClick={() => {
-              setLastQuestionRecap(null);
-              setFinished(false);
-              resetToQuestion(0);
-            }}
+          <Link
+            href="/practice/report"
             className="rounded-xl bg-violet-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-violet-500"
           >
-            再來一輪
-          </button>
+            查看本次 5 題小結
+          </Link>
           <Link
             href="/mastery"
             className="rounded-xl border border-violet-500/50 px-5 py-2.5 text-sm font-medium text-violet-200 hover:bg-zinc-800"
@@ -561,45 +804,59 @@ export default function PracticePage() {
   return (
     <div className="mx-auto max-w-2xl space-y-5">
       {loadNote && (
-        <p className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-center text-xs text-amber-200/90">
-          {loadNote}
-        </p>
-      )}
-
-      {lastQuestionRecap && (
-        <section className="rounded-2xl border border-emerald-600/35 bg-emerald-50/95 p-4 sm:p-5">
-          <div className="flex items-start justify-between gap-2">
-            <h2 className="text-sm font-semibold text-emerald-950">上一題小結</h2>
-            <button
-              type="button"
-              onClick={() => setLastQuestionRecap(null)}
-              className="shrink-0 text-xs font-medium text-emerald-800/80 underline-offset-2 hover:text-emerald-950 hover:underline"
-            >
-              關閉
-            </button>
-          </div>
-          <div className="mt-2">
-            <TutorMixedContent text={lastQuestionRecap} />
-          </div>
-        </section>
+        <div className="flex items-start gap-2.5 rounded-xl border border-zinc-700/50 bg-zinc-800/60 px-4 py-3 text-xs text-zinc-300">
+          <span className="mt-0.5 shrink-0 text-violet-400">ℹ</span>
+          <span>{loadNote}</span>
+        </div>
       )}
 
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <span className="rounded-full bg-violet-500/25 px-4 py-1.5 text-sm font-medium text-violet-200">
+        <span className="rounded-full bg-violet-500/20 px-4 py-1.5 text-sm font-medium text-violet-200 ring-1 ring-violet-500/30">
           {q.unitPill}
           {q.difficulty ? (
-            <span className="ml-2 text-violet-300/80">· {q.difficulty}</span>
+            <span className="ml-2 text-violet-300/70">· {q.difficulty}</span>
+          ) : null}
+          {q.source === "ai" ? (
+            <span className="ml-2 rounded-full bg-amber-500/25 px-2 py-0.5 text-[11px] font-semibold text-amber-200 ring-1 ring-amber-400/40">
+              AI生成
+            </span>
           ) : null}
         </span>
+        <span className="text-xs text-zinc-400">
+          累積已做 {totalSolvedCount} 題（不重複 {uniqueSolvedCount} 題）
+        </span>
         <div className="flex items-center gap-3">
-          <div className="h-2 w-28 overflow-hidden rounded-full bg-zinc-800 sm:w-40">
-            <div
-              className="h-full rounded-full bg-violet-500 transition-all duration-300"
-              style={{ width: `${progressPct}%` }}
-            />
+          <button
+            type="button"
+            onClick={reloadQuestions}
+            className="rounded-lg border border-zinc-600 px-2.5 py-1 text-[11px] font-medium text-zinc-300 hover:border-violet-500/50 hover:text-zinc-100"
+          >
+            重新編排題目
+          </button>
+          <div className="flex flex-col items-end gap-1">
+            <div className="h-1.5 w-28 overflow-hidden rounded-full bg-zinc-800 sm:w-40">
+              <div
+                className="h-full rounded-full bg-violet-500 transition-all duration-500 ease-out"
+                style={{ width: `${progressPct}%` }}
+              />
+            </div>
+            <div className="flex gap-0.5">
+              {Array.from({ length: total }).map((_, i) => (
+                <div
+                  key={i}
+                  className={`h-1 w-2.5 rounded-full transition-all duration-300 ${
+                    i < questionIndex
+                      ? "bg-violet-500"
+                      : i === questionIndex
+                        ? "bg-violet-400"
+                        : "bg-zinc-700"
+                  }`}
+                />
+              ))}
+            </div>
           </div>
           <span className="text-sm tabular-nums text-zinc-400">
-            {questionIndex + 1}/{total}題
+            {questionIndex + 1}/{total}
           </span>
         </div>
       </div>
@@ -654,16 +911,14 @@ export default function PracticePage() {
             })}
           </div>
         ) : (
-          <div className="mt-6">
-            <label className="text-xs font-medium text-zinc-400">
-              你的答案
-            </label>
-            <textarea
+          <div className="mt-6 space-y-2">
+            <p className="text-sm font-medium text-zinc-300">你的答案</p>
+            <MathLiveInput
+              instanceKey={`fill-${questionIndex}-${q.id}`}
               value={fillInput}
-              onChange={(e) => setFillInput(e.target.value)}
-              rows={3}
-              placeholder="輸入答案或簡要過程…"
-              className="mt-1 w-full resize-y rounded-2xl border border-zinc-700 bg-[#0a0b10] px-4 py-3 text-sm text-zinc-100 placeholder:text-zinc-500 focus:border-violet-500 focus:outline-none focus:ring-2 focus:ring-violet-500/25"
+              onChange={setFillInput}
+              defaultMode="math"
+              keyboardHint={q.kind === "fill"}
             />
           </div>
         )}
@@ -673,13 +928,13 @@ export default function PracticePage() {
           onClick={() => {
             void goNextQuestion();
           }}
-          disabled={!canAdvance || recapLoading}
+          disabled={!canAdvance || nextPending}
           className="mt-6 w-full rounded-2xl border border-zinc-600 bg-zinc-800/80 py-3 text-sm font-semibold text-zinc-100 transition hover:bg-zinc-700 disabled:cursor-not-allowed disabled:border-zinc-800 disabled:bg-zinc-900 disabled:text-zinc-600"
         >
-          {recapLoading
-            ? "產生小結中…"
+          {nextPending
+            ? "整理本組中…"
             : isLast
-              ? "完成本輪"
+              ? "完成本組 5 題"
               : "下一題"}
         </button>
         <p className="mt-2 text-center text-xs text-zinc-500">
@@ -693,39 +948,50 @@ export default function PracticePage() {
         <div className="flex items-center gap-2 text-zinc-100">
           <CloudIcon className="size-5 text-violet-400" />
           <h2 className="font-semibold">你的思路</h2>
+          <span className="ml-auto text-xs text-zinc-500">寫一步也可以，不用完整</span>
         </div>
-        <textarea
+        <MathLiveInput
+          className="mt-3"
+          instanceKey={`thought-${questionIndex}-${q.id}`}
           value={thought}
-          onChange={(e) => setThought(e.target.value)}
-          rows={5}
-          placeholder="把你的想法寫在這裡，不用完整，寫一步也可以…"
-          className="mt-4 w-full resize-y rounded-2xl border border-zinc-700 bg-[#0a0b10] px-4 py-3 text-sm text-zinc-100 placeholder:text-zinc-500 focus:border-violet-500 focus:outline-none focus:ring-2 focus:ring-violet-500/25"
+          onChange={setThought}
+          defaultMode="math"
+          smartMode
+          keyboardHint={q.kind === "mcq"}
+          fieldClassName="w-full min-h-[7rem] rounded-2xl border border-zinc-700 bg-[#0a0b10] px-3 py-2 text-base text-zinc-100 shadow-inner"
         />
-        {error && <p className="mt-2 text-xs text-amber-400">{error}</p>}
+        {error && (
+          <p className="mt-2 flex items-center gap-1.5 text-xs text-amber-400">
+            <span>⚠</span> {error}
+          </p>
+        )}
         <button
           type="button"
           onClick={submitThought}
           disabled={!thought.trim() || pending}
-          className="mt-4 w-full rounded-2xl bg-violet-600 py-3 text-sm font-semibold text-white transition hover:bg-violet-500 disabled:cursor-not-allowed disabled:bg-zinc-700 disabled:text-zinc-400"
+          className="mt-4 w-full rounded-2xl bg-violet-600 py-3 text-sm font-semibold text-white shadow-sm hover:bg-violet-500 disabled:cursor-not-allowed disabled:bg-zinc-700 disabled:text-zinc-500"
         >
-          {pending ? "送出中…" : "提交思路"}
+          {pending ? "分析中…" : "提交思路"}
         </button>
       </section>
 
       {tutorVisible && (
         <>
-          <section className="rounded-2xl border border-violet-400/35 bg-violet-200/90 p-5 sm:p-6">
-            <div className="flex items-center gap-2">
-              <span className="flex size-9 items-center justify-center rounded-full bg-violet-600 text-xs font-bold text-white">
+          <section className="rounded-2xl border border-violet-500/35 bg-zinc-900/95 p-5 shadow-sm sm:p-6">
+            <div className="flex items-center gap-2.5">
+              <span className="flex size-9 items-center justify-center rounded-full bg-violet-600 text-xs font-bold text-white shadow-sm">
                 AI
               </span>
-              <h2 className="font-semibold text-zinc-900">導師回應</h2>
+              <div>
+                <h2 className="font-semibold text-zinc-100">導師回應</h2>
+                <p className="text-xs text-violet-300/80">Socratic 引導</p>
+              </div>
             </div>
-            <div className="mt-3">
-              <TutorMixedContent text={tutorText} />
+            <div className="mt-4 text-zinc-100">
+              <TutorMixedContent text={tutorText} className="text-zinc-100" />
             </div>
             {tutorNotice && (
-              <p className="mt-3 rounded-xl border border-amber-600/40 bg-amber-50 px-3 py-2 text-xs text-amber-950">
+              <p className="mt-3 rounded-xl border border-amber-600/40 bg-amber-50 px-3 py-2 text-xs text-amber-950 dark:border-amber-700/40 dark:bg-amber-950/30 dark:text-amber-200">
                 {tutorNotice}
               </p>
             )}
@@ -736,20 +1002,20 @@ export default function PracticePage() {
                   void requestHint();
                 }}
                 disabled={!canRequestMoreHint || hintPending}
-                className="rounded-xl border border-violet-400/60 bg-white/60 px-4 py-2 text-sm font-medium text-violet-950 backdrop-blur-sm hover:bg-white disabled:cursor-not-allowed disabled:opacity-40"
+                className="rounded-xl border border-violet-400/60 bg-violet-100 px-4 py-2 text-sm font-medium text-violet-950 hover:bg-violet-50 disabled:cursor-not-allowed disabled:border-zinc-700 disabled:bg-zinc-800 disabled:text-zinc-500"
               >
                 {hintPending ? "產生中…" : "需要提示"}
               </button>
               <button
                 type="button"
                 onClick={thinkAgain}
-                className="rounded-xl border border-zinc-400/50 bg-transparent px-4 py-2 text-sm font-medium text-zinc-800 hover:bg-white/40"
+                className="rounded-xl border border-zinc-600/70 bg-transparent px-4 py-2 text-sm font-medium text-zinc-200 hover:bg-zinc-800"
               >
                 我再想想
               </button>
             </div>
             {allHintsUnlocked && (
-              <p className="mt-3 text-xs text-zinc-600">
+              <p className="mt-3 text-xs text-zinc-400">
                 提示已全部解鎖；若要重新開始本題思路，可按「我再想想」。
               </p>
             )}
@@ -782,7 +1048,7 @@ export default function PracticePage() {
                             {i + 1}
                           </span>
                         )}
-                        <span
+                        <div
                           className={
                             unlocked
                               ? "text-sm text-zinc-200"
@@ -790,9 +1056,14 @@ export default function PracticePage() {
                           }
                         >
                           {unlocked
-                            ? q.hintSteps[i]
+                            ? (
+                              <TutorMixedContent
+                                text={q.hintSteps[i]}
+                                className="text-zinc-200"
+                              />
+                            )
                             : `第 ${i + 1} 層提示（尚未解鎖）`}
-                        </span>
+                        </div>
                       </div>
                       <span
                         className={

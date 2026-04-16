@@ -35,8 +35,15 @@ function parseFractionValue(s: string): number | null {
 function normalizeSymbolic(s: string): string {
   let t = collapseSpacesLower(s);
   t = t.replace(/\$/g, "");
+  t = t.replace(/\\left\s*/g, "").replace(/\\right\s*/g, "");
+  t = t.replace(/\\overrightarrow\{([^}]*)\}/g, "$1");
+  t = t.replace(/\\overrightarrow/g, "");
+  t = t.replace(/\\vec\{([^}]*)\}/g, "$1");
   t = t.replace(/\\vec/g, "");
+  t = t.replace(/\\mathbf\{([^}]*)\}/g, "$1");
   t = t.replace(/\\mathbf/g, "");
+  t = t.replace(/\\[dt]?frac\{([^}]*)\}\{([^}]*)\}/g, "($1/$2)");
+  t = t.replace(/\\[dt]?frac(\d)(\d)(?!\d)/g, "($1/$2)");
   t = t.replace(/\\cdot/g, "*");
   t = t.replace(/\\times/g, "*");
   t = t.replace(/\\sqrt\{([^}]+)\}/g, "sqrt($1)");

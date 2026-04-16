@@ -11,6 +11,7 @@ import { isPracticeAnswerCorrect } from "@/lib/tutor/evaluate-practice";
 import { loadQuestionByIdFromDb } from "@/lib/tutor/load-questions";
 import { PRACTICE_QUESTIONS } from "@/lib/tutor/practice-questions";
 import type { TutorChatRequest, TutorChatResponse } from "@/lib/tutor/types";
+import { retrieveRagContext } from "@/lib/rag/retrieve-context";
 
 async function questionById(id: string) {
   const fromDb = await loadQuestionByIdFromDb(id);
@@ -26,6 +27,55 @@ function correctAnswerForModel(q: Awaited<ReturnType<typeof questionById>>) {
 
 function topicLabel(q: NonNullable<Awaited<ReturnType<typeof questionById>>>) {
   return q.topicTag ?? q.unitPill ?? "向量";
+}
+
+function normalizeForMatch(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/\$[^$]*\$/g, " ")
+    .replace(/\\[a-z]+/gi, " ")
+    .replace(/[^a-z0-9\u4e00-\u9fff]+/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function extractHintKeywords(hint: string): string[] {
+  const clean = normalizeForMatch(hint);
+  if (!clean) return [];
+  const pieces = clean.split(" ").filter(Boolean);
+  const uniq = new Set<string>();
+  for (const p of pieces) {
+    if (/[\u4e00-\u9fff]/.test(p)) {
+      if (p.length >= 2) uniq.add(p);
+    } else if (p.length >= 3) {
+      uniq.add(p);
+    }
+  }
+  return [...uniq];
+}
+
+function inferHintIndexFromThoughts(hints: string[], thoughts: string[]): number {
+  if (!hints.length || !thoughts.length) return -1;
+  const thoughtText = normalizeForMatch(thoughts.join(" "));
+  if (!thoughtText) return -1;
+  let unlocked = -1;
+  for (let i = 0; i < hints.length; i++) {
+    const kws = extractHintKeywords(hints[i]);
+    if (!kws.length) continue;
+    const hit = kws.filter((k) => thoughtText.includes(k)).length;
+    const threshold = Math.min(2, kws.length);
+    if (hit >= threshold) unlocked = i;
+  }
+  return unlocked;
+}
+
+function studentAnswerSummaryForPrompt(
+  q: NonNullable<Awaited<ReturnType<typeof questionById>>>,
+  selectedChoice: string | null | undefined,
+  studentFillAnswer: string | null | undefined,
+): string {
+  if (q.kind === "mcq") return `選項 ${(selectedChoice ?? "（未選）").trim() || "（未選）"}`;
+  return studentFillAnswer?.trim() || "（未填）";
 }
 
 export async function POST(req: Request) {
@@ -84,6 +134,19 @@ export async function POST(req: Request) {
           typeof m.content === "string",
       )
     : [];
+  const thoughtHistory = history
+    .filter((m) => m.role === "user")
+    .map((m) => m.content.trim())
+    .filter(Boolean);
+  const inferredHintIndex = inferHintIndexFromThoughts(q.hintSteps, [
+    ...thoughtHistory,
+    body.thought.trim(),
+  ]);
+  const studentAnswerSummary = studentAnswerSummaryForPrompt(
+    q,
+    body.selectedChoice ?? null,
+    body.studentFillAnswer ?? null,
+  );
 
   const hintPoolJson = JSON.stringify(
     q.hintSteps.map((text, i) => ({ layer: i + 1, text })),
@@ -98,6 +161,13 @@ export async function POST(req: Request) {
     q.hintSteps,
     hintMaxUnlockedIndex,
   );
+  const ragContext = await retrieveRagContext({
+    studentThought: body.thought.trim(),
+    questionTopic: topicLabel(q),
+    questionStem: stemToPlainWithLatex(q),
+    topicTag: q.topicTag?.trim() || undefined,
+    excludeQuestionId: q.id,
+  });
 
   const userPrompt = buildPromptBUser({
     studentLevel,
@@ -115,10 +185,13 @@ export async function POST(req: Request) {
     attemptCount,
     hintsGiven,
     studentInput: body.thought.trim(),
+    studentAnswerSummary,
+    isCurrentAnswerCorrect: isCorrect,
     maxAttemptsReached,
     conversationHistoryJson: JSON.stringify(history, null, 0),
+    thoughtHistoryJson: JSON.stringify(thoughtHistory, null, 0),
     unlockedHintsBlock,
-    ragContext: undefined,
+    ragContext,
   });
 
   const keyOk = Boolean(readDeepseekApiKey());
@@ -151,8 +224,31 @@ export async function POST(req: Request) {
         );
         uiSignal = { ...uiSignal, hint_index_used: clamped };
       }
+      if (inferredHintIndex >= 0) {
+        const current = typeof uiSignal.hint_index_used === "number" ? uiSignal.hint_index_used : -1;
+        const merged = Math.min(hintLayerMaxIndex, Math.max(current, inferredHintIndex));
+        if (merged > current) {
+          uiSignal = {
+            ...uiSignal,
+            action: uiSignal.action || "auto_reveal_hint",
+            hint_index_used: merged,
+          };
+        }
+      }
     } else if (uiSignal) {
       uiSignal = { ...uiSignal, hint_index_used: -1 };
+      if (inferredHintIndex >= 0 && hintLayerMaxIndex >= 0) {
+        uiSignal = {
+          ...uiSignal,
+          action: "auto_reveal_hint",
+          hint_index_used: Math.min(hintLayerMaxIndex, inferredHintIndex),
+        };
+      }
+    } else if (inferredHintIndex >= 0 && hintLayerMaxIndex >= 0) {
+      uiSignal = {
+        action: "auto_reveal_hint",
+        hint_index_used: Math.min(hintLayerMaxIndex, inferredHintIndex),
+      };
     }
     const res: TutorChatResponse = {
       assistantMessage: visible.trim() || q.thoughtReply,

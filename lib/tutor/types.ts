@@ -63,3 +63,57 @@ export type QuestionRecapResponse = {
   recap: string | null;
   source: "deepseek" | "skipped" | "error";
 };
+
+export type BatchQuestionAttempt = {
+  questionId: string;
+  questionStemPlain: string;
+  topicTag?: string;
+  topicLabel: string;
+  kind: "mcq" | "fill";
+  difficulty?: string;
+  isAiGenerated?: boolean;
+  selectedChoice?: string | null;
+  expectedChoiceKey?: string | null;
+  studentFillAnswer?: string | null;
+  expectedFillAnswer?: string | null;
+  thoughtSummary?: string;
+  /** 本題內學生提交過的思路歷史（只含 user 訊息） */
+  thoughtHistory?: string[];
+  hintsUnlockedLayerMax: number;
+};
+
+export type BatchReportRequest = {
+  batchId: string;
+  batchIndex: number;
+  attempts: BatchQuestionAttempt[];
+  /** 由總掌握傳入的建議等級，避免單次波動造成過度降級 */
+  baselineLevel?: "L1" | "L2" | "L3" | "L4" | null;
+};
+
+export type BatchQuestionResult = {
+  questionId: string;
+  isCorrect: boolean;
+  studentAnswerSummary: string;
+  standardAnswerSummary: string;
+  feedback: string;
+  answerFeedback?: string;
+  thoughtFeedback?: string;
+};
+
+export type BatchReportDifficultyAdvice = "up" | "keep" | "down";
+
+export type BatchReport = {
+  batchId: string;
+  batchIndex: number;
+  generatedAt: string;
+  source: "deepseek" | "fallback";
+  summary: string;
+  /** 系統層標注，不交給 AI 自由發揮 */
+  systemLabel?: string | null;
+  needsAiGeneration?: boolean;
+  weakTopics: string[];
+  nextTopicSuggestions: string[];
+  difficultyAdvice: BatchReportDifficultyAdvice;
+  recommendedLevel?: "L1" | "L2" | "L3" | "L4";
+  questionResults: BatchQuestionResult[];
+};

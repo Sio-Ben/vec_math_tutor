@@ -106,7 +106,41 @@ export const DIAGNOSTIC_QUESTIONS: DiagnosticQuestion[] = [
       { type: "math", latex: "\\vec{a} \\cdot \\vec{b}" },
       { type: "text", value: " =" },
     ],
-    matchFill: (raw) => raw.replace(/\s/g, "") === "3",
+    matchFill: (raw) => {
+      const t = raw.trim();
+      const compact = t.replace(/\s+/g, "");
+
+      // 直接輸入數值（例如 3、+3、3.0）
+      const pure = compact.replace(/^[=＝]/, "");
+      if (/^[+\-]?\d+(?:\.\d+)?$/.test(pure)) {
+        const n = Number(pure);
+        if (Number.isFinite(n) && Math.abs(n - 3) < 1e-9) return true;
+      }
+
+      // 常見「最終答案」寫法（例如 ...=3、答案：3）
+      if (/[=＝]\s*[+\-]?\d+(?:\.\d+)?\s*$/u.test(t)) {
+        const m = t.match(/([+\-]?\d+(?:\.\d+)?)\s*$/u);
+        if (m) {
+          const n = Number(m[1]);
+          if (Number.isFinite(n) && Math.abs(n - 3) < 1e-9) return true;
+        }
+      }
+      if (/答案\s*[：:＝=]?\s*[+\-]?\d+(?:\.\d+)?\s*$/u.test(t)) {
+        const m = t.match(/([+\-]?\d+(?:\.\d+)?)\s*$/u);
+        if (m) {
+          const n = Number(m[1]);
+          if (Number.isFinite(n) && Math.abs(n - 3) < 1e-9) return true;
+        }
+      }
+
+      // 若有過程，採最後一個數字作為最終作答（例如 6-3=3）
+      const nums = t.match(/[+\-]?\d+(?:\.\d+)?/g);
+      if (nums && nums.length > 0) {
+        const last = Number(nums[nums.length - 1]);
+        return Number.isFinite(last) && Math.abs(last - 3) < 1e-9;
+      }
+      return false;
+    },
     fillPlaceholder: "輸入數值",
   },
   {

@@ -9,6 +9,7 @@ export type QuestionKind = "mcq" | "fill";
 
 export type PracticeQuestion = {
   id: string;
+  source?: "bank" | "ai";
   unitPill: string;
   typeLabel: string;
   kind: QuestionKind;

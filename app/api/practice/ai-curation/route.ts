@@ -10,14 +10,24 @@ import {
 } from "@/lib/ai/prompt-practice-curation";
 import { reorderQuestionsByIds } from "@/lib/ai/practice-order-utils";
 import { stemToPlainWithLatex } from "@/lib/ai/prompt-b";
+import { retrieveRagContext } from "@/lib/rag/retrieve-context";
 import type { ClientReport } from "@/lib/report-from-results";
+import {
+  reportCandidatePool,
+  weakTopicTagsFromReport,
+} from "@/lib/practice/report-candidate-pool";
 import { bankRowToPracticeQuestion } from "@/lib/tutor/question-bank";
 import type { PracticeQuestion } from "@/lib/tutor/practice-questions";
+import type { MasteryReportV2 } from "@/lib/progress/types";
 
 export const runtime = "nodejs";
 
 type Body = {
   report?: ClientReport | null;
+  masterySummary?: Pick<
+    MasteryReportV2,
+    "topicScores" | "recommendedTopicOrder" | "recommendedDifficulty"
+  > | null;
   questions: PracticeQuestion[];
   options?: {
     minWeakTopicCoverage?: number;
@@ -26,14 +36,9 @@ type Body = {
   };
 };
 
-function weakTopicTagsFromReport(r: ClientReport): string[] {
-  return [
-    ...new Set(
-      r.weak_topics
-        .map((w) => w.topic_tag?.trim())
-        .filter((t): t is string => Boolean(t)),
-    ),
-  ];
+function normalizeTargetLevel(v: unknown): "L1" | "L2" | "L3" | "L4" | null {
+  if (v === "L1" || v === "L2" || v === "L3" || v === "L4") return v;
+  return null;
 }
 
 function countWeakMatches(
@@ -44,6 +49,16 @@ function countWeakMatches(
   return questions.filter((q) =>
     weakTags.some((t) => q.topicTag === t),
   ).length;
+}
+
+function splitByTargetLevel(
+  questions: PracticeQuestion[],
+  targetLevel: "L1" | "L2" | "L3" | "L4" | null,
+): { preferred: PracticeQuestion[]; others: PracticeQuestion[] } {
+  if (!targetLevel) return { preferred: questions, others: [] };
+  const preferred = questions.filter((q) => q.difficulty === targetLevel);
+  const others = questions.filter((q) => q.difficulty !== targetLevel);
+  return { preferred, others };
 }
 
 function catalogForOrder(questions: PracticeQuestion[]) {
@@ -92,6 +107,19 @@ function sampleRowsFromQuestions(questions: PracticeQuestion[], n: number) {
   });
 }
 
+function isMcqType(typeRaw: string): boolean {
+  const t = typeRaw.trim().toLowerCase();
+  return t === "選擇題" || t === "mcq";
+}
+
+function balanceGeneratedRows(rows: ReturnType<typeof coerceLlMQuestionRows>) {
+  if (rows.length < 2) return rows;
+  const mcq = rows.filter((r) => isMcqType(r.type));
+  const fill = rows.filter((r) => !isMcqType(r.type));
+  if (mcq.length === 0 || fill.length === 0) return rows;
+  return [...mcq, ...fill];
+}
+
 function isValidPermutation(
   orderedIds: string[],
   catalogIds: Set<string>,
@@ -105,6 +133,43 @@ function isValidPermutation(
   return true;
 }
 
+function uniqueAiQuestionId(index: number): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return `ai-gen-${crypto.randomUUID()}-${index}`;
+  }
+  return `ai-gen-${Date.now()}-${Math.random().toString(36).slice(2, 10)}-${index}`;
+}
+
+async function buildGenerationRagContext(
+  weakTags: string[],
+  samples: ReturnType<typeof sampleRowsFromQuestions>,
+  report: ClientReport,
+): Promise<string | undefined> {
+  const prompts: Array<{ topicTag?: string; questionStem: string }> = [];
+  for (const t of weakTags.slice(0, 2)) {
+    prompts.push({ topicTag: t, questionStem: `${t} 練習題` });
+  }
+  for (const s of samples.slice(0, 2)) {
+    prompts.push({
+      topicTag: typeof s.topic === "string" ? s.topic : undefined,
+      questionStem: String(s.question_text ?? "").slice(0, 140),
+    });
+  }
+  const contexts = await Promise.all(
+    prompts.map((p) =>
+      retrieveRagContext({
+        studentThought: report.student_summary ?? "",
+        questionTopic: p.topicTag ?? "synthesis",
+        questionStem: p.questionStem,
+        topicTag: p.topicTag,
+      }).catch(() => undefined),
+    ),
+  );
+  const uniq = [...new Set(contexts.filter((c): c is string => Boolean(c?.trim())))];
+  if (uniq.length === 0) return undefined;
+  return uniq.slice(0, 2).join("\n\n---\n\n");
+}
+
 export async function POST(req: Request) {
   let body: Body;
   try {
@@ -114,11 +179,15 @@ export async function POST(req: Request) {
   }
 
   const incoming = Array.isArray(body.questions) ? body.questions : [];
-  let qs = [...incoming];
   const report = body.report ?? null;
+  const masterySummary = body.masterySummary ?? null;
+  const targetLevel =
+    normalizeTargetLevel(masterySummary?.recommendedDifficulty) ??
+    report?.recommended_start_level ??
+    null;
   const minWeak = body.options?.minWeakTopicCoverage ?? 1;
-  const minTotal = body.options?.minTotalQuestions ?? 4;
-  const maxGen = Math.min(8, Math.max(1, body.options?.maxGenerate ?? 5));
+  const minTotal = Math.max(5, body.options?.minTotalQuestions ?? 5);
+  const maxGen = Math.max(1, body.options?.maxGenerate ?? 20);
 
   const meta: {
     orderedByAi: boolean;
@@ -133,13 +202,19 @@ export async function POST(req: Request) {
 
   if (!getDeepseekChatConfig()) {
     meta.skippedReason = "no_deepseek_key";
-    return NextResponse.json({ questions: qs, meta });
+    return NextResponse.json({ questions: incoming, meta });
   }
 
   if (!report) {
     meta.skippedReason = "no_report";
-    return NextResponse.json({ questions: qs, meta });
+    return NextResponse.json({ questions: incoming, meta });
   }
+
+  let pool = reportCandidatePool(incoming, report);
+  if (pool.length === 0) pool = [...incoming];
+  const poolIds = new Set(pool.map((q) => q.id));
+  const tail = incoming.filter((q) => !poolIds.has(q.id));
+  let qs = [...pool];
 
   try {
     if (qs.length > 0) {
@@ -153,6 +228,7 @@ export async function POST(req: Request) {
             role: "user",
             content: buildPracticeOrderUser({
               reportJson: JSON.stringify(report),
+              masteryJson: JSON.stringify(masterySummary),
               catalogJson: JSON.stringify(catalog),
               catalogIds,
             }),
@@ -177,22 +253,38 @@ export async function POST(req: Request) {
       }
     }
 
+    qs = [...qs, ...tail];
+    let others: PracticeQuestion[] = [];
+    if (targetLevel) {
+      const split = splitByTargetLevel(qs, targetLevel);
+      qs = split.preferred;
+      others = split.others;
+    }
+
     const weakTags = weakTopicTagsFromReport(report);
     const weakMatches = countWeakMatches(qs, weakTags);
+    const hasAiQuestion = qs.some((q) => q.source === "ai");
     const needGen =
       qs.length === 0 ||
       qs.length < minTotal ||
-      (weakTags.length > 0 && weakMatches < minWeak);
+      (weakTags.length > 0 && weakMatches < minWeak) ||
+      !hasAiQuestion;
 
     if (needGen) {
-      const generateCount =
-        qs.length === 0
-          ? maxGen
-          : Math.min(maxGen, Math.max(2, minTotal - qs.length + 2));
+      const shortage = Math.max(0, minTotal - qs.length);
+      const generateCount = Math.min(
+        maxGen,
+        Math.max(!hasAiQuestion ? 2 : 0, shortage),
+      );
+      if (generateCount <= 0) {
+        if (others.length > 0) qs = [...qs, ...others];
+        return NextResponse.json({ questions: qs, meta });
+      }
       const samples = sampleRowsFromQuestions(
-        incoming.length > 0 ? incoming : qs,
+        pool.length > 0 ? pool : incoming,
         3,
       );
+      const ragContext = await buildGenerationRagContext(weakTags, samples, report);
       const genText = await deepseekChat(
         [
           { role: "system", content: PRACTICE_GENERATE_SYSTEM },
@@ -200,7 +292,9 @@ export async function POST(req: Request) {
             role: "user",
             content: buildPracticeGenerateUser({
               reportJson: JSON.stringify(report),
+              masteryJson: JSON.stringify(masterySummary),
               sampleRowsJson: JSON.stringify(samples),
+              ragContext,
               weakTopicTags: weakTags,
               generateCount,
             }),
@@ -213,11 +307,14 @@ export async function POST(req: Request) {
         genParsed && typeof genParsed === "object"
           ? (genParsed as Record<string, unknown>)
           : {};
-      const rows = coerceLlMQuestionRows(genParsed);
+      const rows = balanceGeneratedRows(coerceLlMQuestionRows(genParsed));
       const generated: PracticeQuestion[] = [];
-      for (const row of rows) {
+      for (const [i, row] of rows.entries()) {
         try {
-          generated.push(bankRowToPracticeQuestion(row));
+          const adjustedRow = targetLevel
+            ? { ...row, difficulty: targetLevel, id: uniqueAiQuestionId(i) }
+            : { ...row, id: uniqueAiQuestionId(i) };
+          generated.push({ ...bankRowToPracticeQuestion(adjustedRow), source: "ai" });
         } catch {
           /* skip bad row */
         }
@@ -231,10 +328,13 @@ export async function POST(req: Request) {
       if (generated.length > 0) {
         const genIds = new Set(generated.map((g) => g.id));
         const rest = qs.filter((q) => !genIds.has(q.id));
-        const prepend =
-          weakTags.length > 0 && weakMatches < minWeak || qs.length === 0;
-        qs = prepend ? [...generated, ...rest] : [...rest, ...generated];
+        // 練習頁每批只做前 5 題：AI 題必須置前，否則 meta.generatedCount > 0
+        // 但使用者本組只會看到題庫題，與橫幅說明不符。
+        qs = [...generated, ...rest];
       }
+    }
+    if (others.length > 0) {
+      qs = [...qs, ...others];
     }
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);

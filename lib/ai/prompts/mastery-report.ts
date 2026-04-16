@@ -1,8 +1,48 @@
-/**
- * 掌握程度報告（隨練習累積更新）— 系統／使用者提示詞預留。
- * 之後你提供完整 prompt 時，把主要內容放在此常數，並在
- * `app/api/mastery/report/route.ts` 內組進 Anthropic 呼叫。
- */
-export const MASTERY_REPORT_SYSTEM_PROMPT_PLACEHOLDER = `TODO: 在此貼上「動態掌握報告」的系統提示詞（繁中、輸出 JSON 或 Markdown 等格式約定）。`;
+type BuildMasteryReportUserInput = {
+  diagnosticJson: string;
+  practiceEventsJson: string;
+  batchReportsJson: string;
+  previousReportJson: string;
+};
 
-export const MASTERY_REPORT_USER_PROMPT_TEMPLATE_PLACEHOLDER = `TODO: 使用者訊息模板（注入診斷摘要、練習事件列表、上一版報告等）。`;
+export const MASTERY_REPORT_SYSTEM_PROMPT = `
+你是高中向量單元的學習分析教練。你的任務是依據診斷與練習歷史，輸出一份可機械解析的掌握追蹤 JSON。
+
+規則：
+1) 只輸出單一 JSON 物件，不要 markdown、不要註解。
+2) narrative 必須鼓勵、具體、可行，長度 80~220 字。
+3) topicScores 是 topic_tag -> 0~100 整數。若無資料可輸出空物件。
+4) recommendedTopicOrder 是 1~6 個 topic_tag，按「下一輪優先練習」排序。
+5) recommendedDifficulty 僅能是 L1/L2/L3/L4。
+6) basedOnPracticeEventCount 必須等於輸入的 practiceEvents 長度。
+7) 嚴禁輸出「資料不足/無法判斷」等推責語氣；改給可執行建議。
+
+輸出 schema：
+{
+  "narrative": string,
+  "topicScores": { "<topic_tag>": number },
+  "recommendedTopicOrder": string[],
+  "recommendedDifficulty": "L1" | "L2" | "L3" | "L4",
+  "basedOnPracticeEventCount": number
+}
+`.trim();
+
+export function buildMasteryReportUser(
+  input: BuildMasteryReportUserInput,
+): string {
+  return `
+請根據以下資料產生掌握追蹤 JSON。
+
+[diagnostic]
+${input.diagnosticJson}
+
+[practice_events]
+${input.practiceEventsJson}
+
+[batch_reports]
+${input.batchReportsJson}
+
+[previous_report]
+${input.previousReportJson}
+`.trim();
+}

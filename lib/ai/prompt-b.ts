@@ -48,8 +48,11 @@ export function buildPromptBUser(input: {
   attemptCount: number;
   hintsGiven: number;
   studentInput: string;
+  studentAnswerSummary: string;
+  isCurrentAnswerCorrect: boolean;
   maxAttemptsReached: boolean;
   conversationHistoryJson: string;
+  thoughtHistoryJson: string;
   /** 學生在「提示進度」已看到的題庫提示原文（與畫面一致） */
   unlockedHintsBlock: string;
   ragContext?: string;
@@ -85,10 +88,15 @@ ${input.unlockedHintsBlock}
 學生本題嘗試次數：${input.attemptCount}
 學生已解鎖提示層數（由「提示進度」計）：${input.hintsGiven}
 學生本次輸入的答案/問題：${input.studentInput}
+學生目前作答摘要：${input.studentAnswerSummary}
+學生目前答案是否正確：${input.isCurrentAnswerCorrect}
 本題是否已達最大嘗試次數（3次）：${input.maxAttemptsReached}
 
 ===== 對話歷史（本題範圍內）=====
 ${input.conversationHistoryJson}
+
+===== 學生本題歷史思路（user-only）=====
+${input.thoughtHistoryJson}
 
 ===== 教學規則（不得違反）=====
 1. 絕對不直接說出正確答案的數值或完整解題步驟（除非 MAX_ATTEMPTS_REACHED 且規範允許）。
@@ -97,6 +105,8 @@ ${input.conversationHistoryJson}
 4. 語氣溫暖鼓勵。
 5. 所有數學式須符合上方【數學式 LaTeX 規範】，方便前端用 KaTeX 渲染。
 6. 【與介面一致】若「學生畫面上已可見的提示進度」區塊列有某層原文，你必須承認學生已看到該內容；接著在該基礎上追問（例如如何代入本題、下一步運算），**禁止**再請學生憶測該區塊已寫明的定義或公式。
+7. 若學生目前答案已正確（isCurrentAnswerCorrect=true），回覆第一句必須先明確肯定答對與亮點；接著最多補 1 個思維提醒，避免忽視答案本身。
+8. 若學生本次或歷史思路已明確提到某些 hint 的核心概念，你應直接承認其已掌握該層，跳過重複提示，把重點放在「下一步該怎麼做」；以學生思路為主軸，hint 只作輔助鷹架。
 
 【按嘗試次數的行為規範】
 - ATTEMPT_COUNT = 1：對錯不直接宣判；可用提示池第一層方向。

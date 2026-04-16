@@ -80,6 +80,24 @@ function hintTutorLine(raw: string, layer: number, total: number): string {
   return `【第 ${layer + 1} 層提示】${body}\n\n你可以先對照題幹試一小步；若仍卡住，再按「需要提示」解鎖下一層。`;
 }
 
+function normalizeOptionLatex(raw: string): string {
+  let s = raw.trim();
+  let changed = true;
+  while (changed) {
+    changed = false;
+    if (s.startsWith("$$") && s.endsWith("$$") && s.length >= 4) {
+      s = s.slice(2, -2).trim();
+      changed = true;
+      continue;
+    }
+    if (s.startsWith("$") && s.endsWith("$") && s.length >= 2) {
+      s = s.slice(1, -1).trim();
+      changed = true;
+    }
+  }
+  return s;
+}
+
 export function bankRowToPracticeQuestion(row: QuestionBankRow): PracticeQuestion {
   const unitPill = unitPillFromTopic(row.topic);
   const stemLatex = splitQuestionStem(row.question_text ?? "");
@@ -102,13 +120,14 @@ export function bankRowToPracticeQuestion(row: QuestionBankRow): PracticeQuestio
       ] as const
     )
       .filter(([, v]) => v != null && String(v).trim() !== "")
-      .map(([key, latex]) => ({ key, latex: String(latex).trim() }));
+      .map(([key, latex]) => ({ key, latex: normalizeOptionLatex(String(latex)) }));
 
     const ans = (row.answer ?? "").trim().toUpperCase();
     const correctKey = /^[ABCD]$/.test(ans) ? ans : "A";
 
     return {
       id: row.id,
+      source: "bank",
       unitPill,
       typeLabel: "選擇題",
       kind: "mcq",
@@ -133,6 +152,7 @@ export function bankRowToPracticeQuestion(row: QuestionBankRow): PracticeQuestio
 
   return {
     id: row.id,
+    source: "bank",
     unitPill,
     typeLabel: "填空題",
     kind: "fill",

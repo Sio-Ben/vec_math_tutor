@@ -163,7 +163,40 @@ function SafeInlineLatex({ latex }: { latex: string }) {
   const plain = `$${latex}$`;
   return (
     <KatexErrorBoundary latexKey={latex} fallback={<span>{plain}</span>}>
-      <InlineLatex latex={latex} className="text-violet-950" />
+      <InlineLatex latex={latex} className="text-inherit" />
+    </KatexErrorBoundary>
+  );
+}
+
+function looksLikeLatexAnswer(s: string): boolean {
+  const t = s.trim();
+  if (!t) return false;
+  if (t.startsWith("選項")) return false;
+  if (t.startsWith("（未") || t === "（未填）" || t.includes("題庫未設")) return false;
+  return /\\[a-zA-Z@]+|\\sqrt|\\frac|\^|_/.test(t);
+}
+
+/** 小結／分析：選項與純文字維持原樣，其餘以 KaTeX 渲染 */
+export function AnswerMathOrPlain({
+  text,
+  className,
+}: {
+  text: string;
+  className?: string;
+}) {
+  let inner = text.trim();
+  if (inner.startsWith("$") && inner.endsWith("$") && inner.length >= 2) {
+    inner = inner.slice(1, -1).trim();
+  }
+  if (!looksLikeLatexAnswer(inner)) {
+    return <span className={className}>{text}</span>;
+  }
+  return (
+    <KatexErrorBoundary
+      latexKey={inner}
+      fallback={<span className={className}>{text}</span>}
+    >
+      <InlineLatex latex={inner} className={className ?? "text-inherit"} />
     </KatexErrorBoundary>
   );
 }
@@ -172,7 +205,7 @@ function SafeBlockLatex({ latex }: { latex: string }) {
   const plain = `$$${latex}$$`;
   return (
     <KatexErrorBoundary latexKey={latex} fallback={<pre className="my-2 overflow-x-auto rounded-lg bg-white/80 p-2 text-left text-xs">{plain}</pre>}>
-      <div className="text-violet-950 [&_.katex]:text-inherit">
+      <div className="text-inherit [&_.katex]:text-inherit">
         <BlockLatex latex={latex} />
       </div>
     </KatexErrorBoundary>
@@ -191,7 +224,7 @@ export function TutorMixedContent({
   const blocks = tokenizeDisplayBlocks(text);
   const root = className?.trim()
     ? `space-y-3 text-sm leading-relaxed ${className}`
-    : "space-y-3 text-sm leading-relaxed text-zinc-800";
+    : "space-y-3 text-sm leading-relaxed text-zinc-100";
   return (
     <div className={root}>
       {blocks.map((tok, bi) => {

@@ -6,6 +6,25 @@ function str(v: unknown): string | null {
   return t.length ? t : null;
 }
 
+function stripOuterMathDelimiters(v: string | null): string | null {
+  if (!v) return v;
+  let s = v.trim();
+  let changed = true;
+  while (changed) {
+    changed = false;
+    if (s.startsWith("$$") && s.endsWith("$$") && s.length >= 4) {
+      s = s.slice(2, -2).trim();
+      changed = true;
+      continue;
+    }
+    if (s.startsWith("$") && s.endsWith("$") && s.length >= 2) {
+      s = s.slice(1, -1).trim();
+      changed = true;
+    }
+  }
+  return s || null;
+}
+
 /** 將模型輸出的一筆題目盡量轉成 QuestionBankRow；失敗則 null */
 export function coerceLlMQuestionRow(
   raw: unknown,
@@ -32,10 +51,10 @@ export function coerceLlMQuestionRow(
     difficulty,
     topic,
     question_text,
-    option_a: str(o.option_a) ?? str(o.optionA),
-    option_b: str(o.option_b) ?? str(o.optionB),
-    option_c: str(o.option_c) ?? str(o.optionC),
-    option_d: str(o.option_d) ?? str(o.optionD),
+    option_a: stripOuterMathDelimiters(str(o.option_a) ?? str(o.optionA)),
+    option_b: stripOuterMathDelimiters(str(o.option_b) ?? str(o.optionB)),
+    option_c: stripOuterMathDelimiters(str(o.option_c) ?? str(o.optionC)),
+    option_d: stripOuterMathDelimiters(str(o.option_d) ?? str(o.optionD)),
     answer: str(o.answer),
     explanation: str(o.explanation),
     hint1: str(o.hint1),
