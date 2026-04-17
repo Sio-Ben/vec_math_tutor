@@ -195,6 +195,9 @@ export async function POST(req: Request) {
     orderRationale?: string | null;
     designNote?: string | null;
     skippedReason?: string;
+    /** 本輪補題是否成功注入 RAG 片段（字元數 > 0） */
+    ragContextUsed?: boolean;
+    ragContextChars?: number;
   } = {
     orderedByAi: false,
     generatedCount: 0,
@@ -285,6 +288,9 @@ export async function POST(req: Request) {
         3,
       );
       const ragContext = await buildGenerationRagContext(weakTags, samples, report);
+      const ragTrim = ragContext?.trim() ?? "";
+      meta.ragContextUsed = ragTrim.length > 0;
+      meta.ragContextChars = ragTrim.length;
       const genText = await deepseekChat(
         [
           { role: "system", content: PRACTICE_GENERATE_SYSTEM },
@@ -300,7 +306,7 @@ export async function POST(req: Request) {
             }),
           },
         ],
-        { jsonObject: true, temperature: 0.55 },
+        { jsonObject: true, temperature: 0.38 },
       );
       const genParsed = parseJsonFromModelText(genText);
       const genObj =
