@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { deepseekChat, getDeepseekChatConfig } from "@/lib/ai/deepseek";
 import { parseJsonFromModelText } from "@/lib/ai/parse-model-json";
 import { mockMasteryReportV2 } from "@/lib/ai/mastery-report-mock";
+import { logAiTrace } from "@/lib/ai/trace-logger";
 import {
   buildMasteryReportUser,
   MASTERY_REPORT_SYSTEM_PROMPT,
@@ -56,26 +57,57 @@ export async function POST(req: Request) {
 
   const fallback = mockMasteryReportV2(body);
   if (!getDeepseekChatConfig()) {
+    await logAiTrace({
+      route: "/api/mastery/report",
+      phase: "result",
+      meta: { source: "fallback", reason: "no_deepseek_key" },
+      payload: {
+        diagnosticJson: body.diagnostic ?? null,
+        practiceEventsCount: Array.isArray(body.practiceEvents) ? body.practiceEvents.length : 0,
+      },
+    });
     return NextResponse.json({ report: fallback });
   }
 
   try {
+    const promptPayload = {
+      diagnosticJson: body.diagnostic ?? null,
+      practiceEventsJson: body.practiceEvents ?? [],
+      batchReportsJson: body.batchReports ?? [],
+      previousReportJson: body.previousReport ?? null,
+    };
+    await logAiTrace({
+      route: "/api/mastery/report",
+      phase: "prompt",
+      payload: promptPayload,
+    });
     const text = await deepseekChat(
       [
         { role: "system", content: MASTERY_REPORT_SYSTEM_PROMPT },
         {
           role: "user",
           content: buildMasteryReportUser({
-            diagnosticJson: JSON.stringify(body.diagnostic ?? null),
-            practiceEventsJson: JSON.stringify(body.practiceEvents ?? []),
-            batchReportsJson: JSON.stringify(body.batchReports ?? []),
-            previousReportJson: JSON.stringify(body.previousReport ?? null),
+            diagnosticJson: JSON.stringify(promptPayload.diagnosticJson),
+            practiceEventsJson: JSON.stringify(promptPayload.practiceEventsJson),
+            batchReportsJson: JSON.stringify(promptPayload.batchReportsJson),
+            previousReportJson: JSON.stringify(promptPayload.previousReportJson),
           }),
         },
       ],
       { jsonObject: true, temperature: 0.25 },
     );
+    await logAiTrace({
+      route: "/api/mastery/report",
+      phase: "response",
+      meta: { rawChars: text.length },
+      payload: text,
+    });
     const parsed = parseJsonFromModelText(text) as Record<string, unknown>;
+    await logAiTrace({
+      route: "/api/mastery/report",
+      phase: "result",
+      payload: parsed,
+    });
     const recommendedDifficulty =
       normalizeLevel(parsed.recommendedDifficulty) ??
       fallback.recommendedDifficulty ??
@@ -96,6 +128,11 @@ export async function POST(req: Request) {
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     console.error("[mastery/report]", msg);
+    await logAiTrace({
+      route: "/api/mastery/report",
+      phase: "error",
+      payload: { message: msg },
+    });
     return NextResponse.json({
       report: {
         ...fallback,

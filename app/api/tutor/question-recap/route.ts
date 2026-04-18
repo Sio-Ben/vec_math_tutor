@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { deepseekChat, readDeepseekApiKey } from "@/lib/ai/deepseek";
+import { logAiTrace } from "@/lib/ai/trace-logger";
 import {
   buildQuestionRecapUser,
   QUESTION_RECAP_SYSTEM,
@@ -33,6 +34,11 @@ export async function POST(req: Request) {
 
   try {
     const user = buildQuestionRecapUser(body);
+    await logAiTrace({
+      route: "/api/tutor/question-recap",
+      phase: "prompt",
+      payload: { questionId: body.questionId, userPrompt: user },
+    });
     const raw = await deepseekChat(
       [
         { role: "system", content: QUESTION_RECAP_SYSTEM },
@@ -40,14 +46,30 @@ export async function POST(req: Request) {
       ],
       { temperature: 0.35 },
     );
+    await logAiTrace({
+      route: "/api/tutor/question-recap",
+      phase: "response",
+      meta: { rawChars: raw.length },
+      payload: raw,
+    });
     const { visible } = splitTutorReplyAndUiSignal(raw);
     const recap = visible.trim() || null;
+    await logAiTrace({
+      route: "/api/tutor/question-recap",
+      phase: "result",
+      payload: { recap, source: "deepseek" },
+    });
     return NextResponse.json({
       recap,
       source: "deepseek" as const,
     } satisfies QuestionRecapResponse);
   } catch (e) {
     console.error("[tutor/question-recap]", e);
+    await logAiTrace({
+      route: "/api/tutor/question-recap",
+      phase: "error",
+      payload: { message: e instanceof Error ? e.message : String(e) },
+    });
     return NextResponse.json({
       recap: null,
       source: "error" as const,

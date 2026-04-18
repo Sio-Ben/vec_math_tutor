@@ -5,12 +5,15 @@ import { parseJsonFromModelText } from "@/lib/ai/parse-model-json";
 import {
   buildPracticeGenerateUser,
   buildPracticeOrderUser,
+  buildPracticeValidateUser,
   PRACTICE_GENERATE_SYSTEM,
   PRACTICE_ORDER_SYSTEM,
+  PRACTICE_VALIDATE_SYSTEM,
 } from "@/lib/ai/prompt-practice-curation";
 import { reorderQuestionsByIds } from "@/lib/ai/practice-order-utils";
 import { stemToPlainWithLatex } from "@/lib/ai/prompt-b";
 import { retrieveRagContext } from "@/lib/rag/retrieve-context";
+import { logAiTrace } from "@/lib/ai/trace-logger";
 import type { ClientReport } from "@/lib/report-from-results";
 import {
   reportCandidatePool,
@@ -140,6 +143,74 @@ function uniqueAiQuestionId(index: number): string {
   return `ai-gen-${Date.now()}-${Math.random().toString(36).slice(2, 10)}-${index}`;
 }
 
+type InvalidReasonCode =
+  | "ANSWER_MISMATCH"
+  | "OPTIONS_DUPLICATE"
+  | "STEM_OPTION_CONTRADICTION"
+  | "UNSOLVABLE_OR_NO_VALID_CHOICE"
+  | "FORMAT_INVALID";
+
+type ValidateParsed = {
+  valid_questions?: unknown[];
+  invalid?: Array<{ id?: unknown; reason_code?: unknown; reason_detail?: unknown }>;
+  summary?: { total?: unknown; valid_count?: unknown; invalid_count?: unknown };
+};
+
+function readPositiveInt(raw: string | undefined, fallback: number, min = 1, max = 5): number {
+  const n = Number(raw ?? "");
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(max, Math.max(min, Math.floor(n)));
+}
+
+function parseInvalidReasonCode(v: unknown): InvalidReasonCode {
+  return v === "ANSWER_MISMATCH" ||
+    v === "OPTIONS_DUPLICATE" ||
+    v === "STEM_OPTION_CONTRADICTION" ||
+    v === "UNSOLVABLE_OR_NO_VALID_CHOICE" ||
+    v === "FORMAT_INVALID"
+    ? v
+    : "FORMAT_INVALID";
+}
+
+function normalizeInvalidStats(
+  invalid: Array<{ reason_code?: unknown }>,
+): Record<InvalidReasonCode, number> {
+  const base: Record<InvalidReasonCode, number> = {
+    ANSWER_MISMATCH: 0,
+    OPTIONS_DUPLICATE: 0,
+    STEM_OPTION_CONTRADICTION: 0,
+    UNSOLVABLE_OR_NO_VALID_CHOICE: 0,
+    FORMAT_INVALID: 0,
+  };
+  for (const row of invalid) {
+    const code = parseInvalidReasonCode(row.reason_code);
+    base[code] += 1;
+  }
+  return base;
+}
+
+function mergeReasonStats(
+  acc: Record<InvalidReasonCode, number>,
+  add: Record<InvalidReasonCode, number>,
+): Record<InvalidReasonCode, number> {
+  return {
+    ANSWER_MISMATCH: acc.ANSWER_MISMATCH + add.ANSWER_MISMATCH,
+    OPTIONS_DUPLICATE: acc.OPTIONS_DUPLICATE + add.OPTIONS_DUPLICATE,
+    STEM_OPTION_CONTRADICTION: acc.STEM_OPTION_CONTRADICTION + add.STEM_OPTION_CONTRADICTION,
+    UNSOLVABLE_OR_NO_VALID_CHOICE:
+      acc.UNSOLVABLE_OR_NO_VALID_CHOICE + add.UNSOLVABLE_OR_NO_VALID_CHOICE,
+    FORMAT_INVALID: acc.FORMAT_INVALID + add.FORMAT_INVALID,
+  };
+}
+
+function safeParseModelJson(text: string): unknown {
+  try {
+    return parseJsonFromModelText(text);
+  } catch {
+    return null;
+  }
+}
+
 async function buildGenerationRagContext(
   weakTags: string[],
   samples: ReturnType<typeof sampleRowsFromQuestions>,
@@ -188,6 +259,10 @@ export async function POST(req: Request) {
   const minWeak = body.options?.minWeakTopicCoverage ?? 1;
   const minTotal = Math.max(5, body.options?.minTotalQuestions ?? 5);
   const maxGen = Math.max(1, body.options?.maxGenerate ?? 20);
+  const maxValidateRounds = readPositiveInt(process.env.AI_VALIDATE_MAX_ROUNDS, 2, 1, 4);
+  const generateModel =
+    process.env.DEEPSEEK_MODEL_GENERATE?.trim() || process.env.DEEPSEEK_MODEL?.trim() || undefined;
+  const validateModel = process.env.DEEPSEEK_MODEL_VALIDATE?.trim() || "deepseek-chat";
 
   const meta: {
     orderedByAi: boolean;
@@ -198,6 +273,11 @@ export async function POST(req: Request) {
     /** 本輪補題是否成功注入 RAG 片段（字元數 > 0） */
     ragContextUsed?: boolean;
     ragContextChars?: number;
+    validationRounds?: number;
+    validatedCount?: number;
+    invalidCount?: number;
+    invalidReasonStats?: Record<InvalidReasonCode, number>;
+    fallbackCount?: number;
   } = {
     orderedByAi: false,
     generatedCount: 0,
@@ -224,6 +304,17 @@ export async function POST(req: Request) {
       const catalog = catalogForOrder(qs);
       const catalogIds = catalog.map((c) => c.id);
       const idSet = new Set(catalogIds);
+      await logAiTrace({
+        route: "/api/practice/ai-curation",
+        phase: "prompt",
+        meta: { step: "order" },
+        payload: {
+          reportJson: report,
+          masteryJson: masterySummary,
+          catalogJson: catalog,
+          catalogIds,
+        },
+      });
       const orderText = await deepseekChat(
         [
           { role: "system", content: PRACTICE_ORDER_SYSTEM },
@@ -239,10 +330,22 @@ export async function POST(req: Request) {
         ],
         { jsonObject: true, temperature: 0.25 },
       );
-      const orderParsed = parseJsonFromModelText(orderText) as {
+      await logAiTrace({
+        route: "/api/practice/ai-curation",
+        phase: "response",
+        meta: { step: "order", rawChars: orderText.length },
+        payload: orderText,
+      });
+      const orderParsed = safeParseModelJson(orderText) as {
         ordered_ids?: unknown;
         rationale?: string;
       };
+      await logAiTrace({
+        route: "/api/practice/ai-curation",
+        phase: "result",
+        meta: { step: "order", parsed: true },
+        payload: orderParsed,
+      });
       const orderedIds = Array.isArray(orderParsed.ordered_ids)
         ? orderParsed.ordered_ids.filter((x): x is string => typeof x === "string")
         : [];
@@ -275,11 +378,11 @@ export async function POST(req: Request) {
 
     if (needGen) {
       const shortage = Math.max(0, minTotal - qs.length);
-      const generateCount = Math.min(
+      const targetGenerateCount = Math.min(
         maxGen,
         Math.max(!hasAiQuestion ? 2 : 0, shortage),
       );
-      if (generateCount <= 0) {
+      if (targetGenerateCount <= 0) {
         if (others.length > 0) qs = [...qs, ...others];
         return NextResponse.json({ questions: qs, meta });
       }
@@ -291,52 +394,185 @@ export async function POST(req: Request) {
       const ragTrim = ragContext?.trim() ?? "";
       meta.ragContextUsed = ragTrim.length > 0;
       meta.ragContextChars = ragTrim.length;
-      const genText = await deepseekChat(
-        [
-          { role: "system", content: PRACTICE_GENERATE_SYSTEM },
-          {
-            role: "user",
-            content: buildPracticeGenerateUser({
-              reportJson: JSON.stringify(report),
-              masteryJson: JSON.stringify(masterySummary),
-              sampleRowsJson: JSON.stringify(samples),
-              ragContext,
-              weakTopicTags: weakTags,
-              generateCount,
-            }),
+      let rounds = 0;
+      let invalidCount = 0;
+      let reasonStats: Record<InvalidReasonCode, number> = {
+        ANSWER_MISMATCH: 0,
+        OPTIONS_DUPLICATE: 0,
+        STEM_OPTION_CONTRADICTION: 0,
+        UNSOLVABLE_OR_NO_VALID_CHOICE: 0,
+        FORMAT_INVALID: 0,
+      };
+      let fallbackCount = 0;
+      const accepted: PracticeQuestion[] = [];
+      const acceptedIds = new Set<string>();
+      while (accepted.length < targetGenerateCount && rounds < maxValidateRounds) {
+        rounds += 1;
+        const missingCount = targetGenerateCount - accepted.length;
+        await logAiTrace({
+          route: "/api/practice/ai-curation",
+          phase: "prompt",
+          meta: { step: "generate", round: rounds, missingCount },
+          payload: {
+            reportJson: report,
+            masteryJson: masterySummary,
+            sampleRowsJson: samples,
+            weakTopicTags: weakTags,
+            generateCount: missingCount,
+            ragContext,
           },
-        ],
-        { jsonObject: true, temperature: 0.38 },
-      );
-      const genParsed = parseJsonFromModelText(genText);
-      const genObj =
-        genParsed && typeof genParsed === "object"
-          ? (genParsed as Record<string, unknown>)
-          : {};
-      const rows = balanceGeneratedRows(coerceLlMQuestionRows(genParsed));
-      const generated: PracticeQuestion[] = [];
-      for (const [i, row] of rows.entries()) {
-        try {
-          const adjustedRow = targetLevel
-            ? { ...row, difficulty: targetLevel, id: uniqueAiQuestionId(i) }
-            : { ...row, id: uniqueAiQuestionId(i) };
-          generated.push({ ...bankRowToPracticeQuestion(adjustedRow), source: "ai" });
-        } catch {
-          /* skip bad row */
+        });
+        const genText = await deepseekChat(
+          [
+            { role: "system", content: PRACTICE_GENERATE_SYSTEM },
+            {
+              role: "user",
+              content: buildPracticeGenerateUser({
+                reportJson: JSON.stringify(report),
+                masteryJson: JSON.stringify(masterySummary),
+                sampleRowsJson: JSON.stringify(samples),
+                ragContext,
+                weakTopicTags: weakTags,
+                generateCount: missingCount,
+              }),
+            },
+          ],
+          { jsonObject: true, temperature: 0.3, model: generateModel },
+        );
+        await logAiTrace({
+          route: "/api/practice/ai-curation",
+          phase: "response",
+          meta: { step: "generate", round: rounds, rawChars: genText.length },
+          payload: genText,
+        });
+        const genParsed = safeParseModelJson(genText);
+        const genObj =
+          genParsed && typeof genParsed === "object"
+            ? (genParsed as Record<string, unknown>)
+            : {};
+        if (!meta.designNote && typeof genObj.design_note === "string") {
+          meta.designNote = genObj.design_note.slice(0, 500);
         }
+        const rows = balanceGeneratedRows(coerceLlMQuestionRows(genParsed));
+        const generatedRows = rows.map((row, i) =>
+          targetLevel
+            ? {
+                ...row,
+                difficulty: targetLevel,
+                id: uniqueAiQuestionId(rounds * 1000 + i),
+              }
+            : {
+                ...row,
+                id: uniqueAiQuestionId(rounds * 1000 + i),
+              },
+        );
+        await logAiTrace({
+          route: "/api/practice/ai-curation",
+          phase: "prompt",
+          meta: { step: "validate", round: rounds, candidateCount: generatedRows.length },
+          payload: {
+            reportJson: report,
+            masteryJson: masterySummary,
+            questionsJson: generatedRows,
+          },
+        });
+        const validateText = await deepseekChat(
+          [
+            { role: "system", content: PRACTICE_VALIDATE_SYSTEM },
+            {
+              role: "user",
+              content: buildPracticeValidateUser({
+                reportJson: JSON.stringify(report),
+                masteryJson: JSON.stringify(masterySummary),
+                questionsJson: JSON.stringify(generatedRows),
+              }),
+            },
+          ],
+          { jsonObject: true, temperature: 0.1, model: validateModel },
+        );
+        await logAiTrace({
+          route: "/api/practice/ai-curation",
+          phase: "response",
+          meta: { step: "validate", round: rounds, rawChars: validateText.length },
+          payload: validateText,
+        });
+        const validateParsed = safeParseModelJson(validateText) as ValidateParsed;
+        const validRowsRaw = Array.isArray(validateParsed.valid_questions)
+          ? validateParsed.valid_questions
+          : [];
+        const invalidRowsRaw = Array.isArray(validateParsed.invalid) ? validateParsed.invalid : [];
+        reasonStats = mergeReasonStats(reasonStats, normalizeInvalidStats(invalidRowsRaw));
+        const validIds = new Set(
+          validRowsRaw
+            .map((r) =>
+              r && typeof r === "object" && typeof (r as Record<string, unknown>).id === "string"
+                ? String((r as Record<string, unknown>).id)
+                : "",
+            )
+            .filter(Boolean),
+        );
+        const invalidIds = new Set(
+          invalidRowsRaw
+            .map((r) => (typeof r.id === "string" ? r.id : ""))
+            .filter(Boolean),
+        );
+        for (const row of generatedRows) {
+          if (!validIds.has(row.id)) {
+            if (!invalidIds.has(row.id)) {
+              reasonStats.FORMAT_INVALID += 1;
+            }
+            invalidCount += 1;
+            continue;
+          }
+          if (acceptedIds.has(row.id)) continue;
+          try {
+            const q = { ...bankRowToPracticeQuestion(row), source: "ai" as const };
+            accepted.push(q);
+            acceptedIds.add(row.id);
+          } catch {
+            invalidCount += 1;
+            reasonStats.FORMAT_INVALID += 1;
+          }
+        }
+        await logAiTrace({
+          route: "/api/practice/ai-curation",
+          phase: "result",
+          meta: {
+            step: "validate",
+            round: rounds,
+            validCount: validIds.size,
+            invalidCount: invalidRowsRaw.length,
+          },
+          payload: validateParsed,
+        });
       }
-      meta.generatedCount = generated.length;
-      meta.designNote =
-        typeof genObj.design_note === "string"
-          ? genObj.design_note.slice(0, 500)
-          : null;
+      fallbackCount = Math.max(0, targetGenerateCount - accepted.length);
+      meta.validationRounds = rounds;
+      meta.validatedCount = accepted.length;
+      meta.invalidCount = invalidCount;
+      meta.invalidReasonStats = reasonStats;
+      meta.fallbackCount = fallbackCount;
+      meta.generatedCount = accepted.length;
+      await logAiTrace({
+        route: "/api/practice/ai-curation",
+        phase: "result",
+        meta: {
+          step: "final_selected",
+          targetGenerateCount,
+          acceptedCount: accepted.length,
+          fallbackCount,
+          rounds,
+        },
+        payload: {
+          acceptedIds: accepted.map((q) => q.id),
+          invalidReasonStats: reasonStats,
+        },
+      });
 
-      if (generated.length > 0) {
-        const genIds = new Set(generated.map((g) => g.id));
+      if (accepted.length > 0) {
+        const genIds = new Set(accepted.map((g) => g.id));
         const rest = qs.filter((q) => !genIds.has(q.id));
-        // 練習頁每批只做前 5 題：AI 題必須置前，否則 meta.generatedCount > 0
-        // 但使用者本組只會看到題庫題，與橫幅說明不符。
-        qs = [...generated, ...rest];
+        qs = [...accepted, ...rest];
       }
     }
     if (others.length > 0) {
@@ -345,6 +581,12 @@ export async function POST(req: Request) {
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     console.error("[practice/ai-curation]", msg);
+    await logAiTrace({
+      route: "/api/practice/ai-curation",
+      phase: "error",
+      meta: { step: "main" },
+      payload: { message: msg },
+    });
     return NextResponse.json(
       {
         questions: incoming,

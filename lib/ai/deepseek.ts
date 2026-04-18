@@ -44,6 +44,7 @@ export type ChatMessage = { role: "system" | "user" | "assistant"; content: stri
 export type DeepseekChatOptions = {
   jsonObject?: boolean;
   temperature?: number;
+  model?: string;
 };
 
 export async function deepseekChat(
@@ -56,7 +57,7 @@ export async function deepseekChat(
   }
 
   const body: Record<string, unknown> = {
-    model: cfg.model,
+    model: options?.model?.trim() || cfg.model,
     messages,
     temperature: options?.temperature ?? 0.4,
   };

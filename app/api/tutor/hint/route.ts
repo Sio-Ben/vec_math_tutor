@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { deepseekChat, readDeepseekApiKey } from "@/lib/ai/deepseek";
 import { mockHintCoachReply } from "@/lib/ai/hint-coach-mock";
+import { logAiTrace } from "@/lib/ai/trace-logger";
 import { loadQuestionByIdFromDb } from "@/lib/tutor/load-questions";
 import { PRACTICE_QUESTIONS } from "@/lib/tutor/practice-questions";
 
@@ -43,6 +44,17 @@ export async function POST(req: Request) {
 
   if (readDeepseekApiKey() && hintSourceText) {
     try {
+      const promptPayload = {
+        questionId: id,
+        hintIndex,
+        hintSourceText,
+        studentThought: (body.studentThought ?? "").trim() || "（無）",
+      };
+      await logAiTrace({
+        route: "/api/tutor/hint",
+        phase: "prompt",
+        payload: promptPayload,
+      });
       const coachReply = (
         await deepseekChat(
           [
@@ -59,10 +71,26 @@ export async function POST(req: Request) {
           { temperature: 0.45 },
         )
       ).trim();
+      await logAiTrace({
+        route: "/api/tutor/hint",
+        phase: "response",
+        meta: { rawChars: coachReply.length },
+        payload: coachReply,
+      });
       if (coachReply) {
+        await logAiTrace({
+          route: "/api/tutor/hint",
+          phase: "result",
+          payload: { coachReply, hintIndex, source: "deepseek" },
+        });
         return NextResponse.json({ coachReply, hintIndex });
       }
     } catch {
+      await logAiTrace({
+        route: "/api/tutor/hint",
+        phase: "error",
+        payload: { message: "deepseek_hint_failed" },
+      });
       /* fallback */
     }
   }

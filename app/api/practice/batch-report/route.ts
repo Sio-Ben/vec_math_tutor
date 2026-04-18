@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { deepseekChat, getDeepseekChatConfig } from "@/lib/ai/deepseek";
 import { parseJsonFromModelText } from "@/lib/ai/parse-model-json";
 import { buildBatchReportUser, BATCH_REPORT_SYSTEM } from "@/lib/ai/prompt-batch-report";
+import { logAiTrace } from "@/lib/ai/trace-logger";
 import { isPracticeAnswerCorrect } from "@/lib/tutor/evaluate-practice";
 import { fillAnswersEquivalent } from "@/lib/tutor/fill-answer-equivalence";
 import { loadQuestionByIdFromDb } from "@/lib/tutor/load-questions";
@@ -213,29 +214,45 @@ export async function POST(req: Request) {
   }
 
   try {
+    const promptPayload = {
+      batchIndex: report.batchIndex,
+      results,
+      attemptsSummary: {
+        total: attempts.length,
+        mcqTotal: attempts.filter((a) => a.kind === "mcq").length,
+        fillTotal: attempts.filter((a) => a.kind === "fill").length,
+        aiTotal: attempts.filter((a) => a.isAiGenerated).length,
+        thoughtSubmitted: attempts.filter((a) => (a.thoughtSummary ?? "").trim().length > 0).length,
+        hintUsed: attempts.filter((a) => a.hintsUnlockedLayerMax >= 0).length,
+      },
+    };
+    await logAiTrace({
+      route: "/api/practice/batch-report",
+      phase: "prompt",
+      payload: promptPayload,
+    });
     const text = await deepseekChat(
       [
         { role: "system", content: BATCH_REPORT_SYSTEM },
         {
           role: "user",
-          content: buildBatchReportUser({
-            batchIndex: report.batchIndex,
-            results,
-            attemptsSummary: {
-              total: attempts.length,
-              mcqTotal: attempts.filter((a) => a.kind === "mcq").length,
-              fillTotal: attempts.filter((a) => a.kind === "fill").length,
-              aiTotal: attempts.filter((a) => a.isAiGenerated).length,
-              thoughtSubmitted: attempts.filter((a) => (a.thoughtSummary ?? "").trim().length > 0)
-                .length,
-              hintUsed: attempts.filter((a) => a.hintsUnlockedLayerMax >= 0).length,
-            },
-          }),
+          content: buildBatchReportUser(promptPayload),
         },
       ],
       { jsonObject: true, temperature: 0.3 },
     );
+    await logAiTrace({
+      route: "/api/practice/batch-report",
+      phase: "response",
+      meta: { rawChars: text.length },
+      payload: text,
+    });
     const parsed = parseJsonFromModelText(text) as Record<string, unknown>;
+    await logAiTrace({
+      route: "/api/practice/batch-report",
+      phase: "result",
+      payload: parsed,
+    });
     report.source = "deepseek";
     report.summary = studentFocusedSummary(
       typeof parsed.summary === "string" && parsed.summary.trim()
@@ -260,6 +277,11 @@ export async function POST(req: Request) {
       ? maxLevel(aiLevel, baselineLevel)
       : aiLevel;
   } catch {
+    await logAiTrace({
+      route: "/api/practice/batch-report",
+      phase: "error",
+      payload: { message: "deepseek_or_parse_failed" },
+    });
     // keep fallback report
   }
 

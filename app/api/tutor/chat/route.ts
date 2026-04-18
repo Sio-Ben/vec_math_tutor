@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { deepseekChat, readDeepseekApiKey } from "@/lib/ai/deepseek";
 import { splitTutorReplyAndUiSignal } from "@/lib/ai/parse-tutor-reply";
+import { logAiTrace } from "@/lib/ai/trace-logger";
 import {
   buildPromptBUser,
   formatUnlockedHintsForPrompt,
@@ -193,6 +194,23 @@ export async function POST(req: Request) {
     unlockedHintsBlock,
     ragContext,
   });
+  await logAiTrace({
+    route: "/api/tutor/chat",
+    phase: "prompt",
+    payload: {
+      questionId: q.id,
+      promptInputs: {
+        studentLevel,
+        masteryScore,
+        attemptCount,
+        hintsGiven,
+        isCorrect,
+        inferredHintIndex,
+        studentAnswerSummary,
+      },
+      userPrompt,
+    },
+  });
 
   const keyOk = Boolean(readDeepseekApiKey());
 
@@ -213,6 +231,12 @@ export async function POST(req: Request) {
       ],
       { temperature: 0.45 },
     );
+    await logAiTrace({
+      route: "/api/tutor/chat",
+      phase: "response",
+      meta: { rawChars: full.length },
+      payload: full,
+    });
     const { visible, uiSignal: rawSignal } = splitTutorReplyAndUiSignal(full);
     let uiSignal = rawSignal;
     if (uiSignal && hintLayerMaxIndex >= 0) {
@@ -255,9 +279,19 @@ export async function POST(req: Request) {
       uiSignal,
       replySource: "deepseek",
     };
+    await logAiTrace({
+      route: "/api/tutor/chat",
+      phase: "result",
+      payload: res,
+    });
     return NextResponse.json(res);
   } catch (e) {
     console.error("[tutor/chat] DeepSeek 呼叫失敗:", e);
+    await logAiTrace({
+      route: "/api/tutor/chat",
+      phase: "error",
+      payload: { message: e instanceof Error ? e.message : String(e) },
+    });
     const res: TutorChatResponse = {
       assistantMessage: q.thoughtReply,
       uiSignal: null,
