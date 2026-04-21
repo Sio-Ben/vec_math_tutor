@@ -646,6 +646,7 @@ export default function PracticePage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           questionId: q.id,
+          ...(q.source === "ai" ? { inlineQuestion: q } : {}),
           thought: userLine,
           selectedChoice: selected,
           studentFillAnswer: q.kind === "fill" ? fillInput.trim() || null : null,
@@ -732,6 +733,7 @@ export default function PracticePage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           questionId: q.id,
+          ...(q.source === "ai" ? { inlineQuestion: q } : {}),
           hintIndex: next,
           studentThought: thought.trim() || null,
         }),

@@ -1,0 +1,128 @@
+以下內容可直接貼回你目前的論文草稿，替換各 placeholder。
+
+==================================================
+[替換 1] 圖 4-1：系統整體架構圖（原「【圖 4-1 置於此：系統整體架構圖】」）
+==================================================
+圖 4-1 系統整體三層架構（瀏覽器—應用層—資料與模型層）
+
+（可貼 Mermaid 版本）
+```mermaid
+flowchart LR
+    A[Browser / React 前端] --> B[Next.js Route Handlers]
+    B --> C[DeepSeek Chat Completions]
+    B --> D[Supabase PostgreSQL]
+    D --> E[(vector_questions)]
+    D --> F[(pgvector RPC match_vector_questions)]
+    A --> G[sessionStorage<br/>diagnostic/practice/mastery]
+    B --> H[AI Trace JSONL]
+```
+
+建議圖說：
+「本系統採前後端一體化架構：前端負責互動與狀態展示，Route Handlers 負責業務邏輯與 AI 調用，資料層由 Supabase 題庫與向量檢索支援；學生進度狀態以 sessionStorage 保存，並由 AI trace 提供可觀測性。」
+
+==================================================
+[替換 2] 學習閉環流程圖（原「【圖 4-1 置於此：學習閉環流程圖】」）
+==================================================
+建議改編號為「圖 4-2」避免與前圖重複。
+
+圖 4-2 診斷—練習—總結學習閉環
+
+```mermaid
+flowchart TD
+    A[診斷問卷 /diagnostic] --> B[診斷分析 /api/diagnostic/analyze]
+    B --> C[ClientReport<br/>弱項/建議起點]
+    C --> D[練習題組 /practice]
+    D --> E[Socratic 對話引導 /api/tutor/chat]
+    D --> F[每 5 題批次小結 /api/practice/batch-report]
+    E --> D
+    F --> G[掌握報告 /api/mastery/report]
+    G --> H[/mastery 儀表板]
+    H --> D
+```
+
+建議圖說：
+「系統以診斷報告驅動練習編排，並在練習過程中持續生成批次與總體回饋，形成可迭代的個性化學習閉環。」
+
+==================================================
+[替換 3] 圖 5-1：雙階段命題管線流程圖（原「【圖 5-1 置於此】」）
+==================================================
+圖 5-1 雙階段命題管線（Generate & Validate）
+
+```mermaid
+flowchart TD
+    A[建立候選池 reportCandidatePool] --> B[AI 排序 ordered_ids]
+    B --> C{是否需補題?}
+    C -- 否 --> Z[輸出編排後題單]
+    C -- 是 --> D[Prompt Generate<br/>產生新題]
+    D --> E[Prompt Validate<br/>驗題與錯誤碼]
+    E --> F{valid 題數是否足夠?}
+    F -- 是 --> G[合併題單(AI題置前)]
+    F -- 否 --> H{rounds < MAX_ROUNDS?}
+    H -- 是 --> D
+    H -- 否 --> I[題庫 fallback 填充]
+    G --> Z
+    I --> Z
+```
+
+建議圖說：
+「命題流程將生成與驗題分離，並以有限輪數補生與 fallback 填充保證可用性；同時保留 invalidReasonStats 作為後續質量分析依據。」
+
+==================================================
+[替換 4] 圖 5-3：RAG 三層降級流程圖（原「【圖 5-3 置於此】」）
+==================================================
+圖 5-3 RAG 三層降級策略
+
+```mermaid
+flowchart TD
+    A[輸入: topic + stem + thought] --> B[Layer 1 同 topic 結構化取樣]
+    B --> C{Layer 1 有結果?}
+    C -- 是 --> Z[回傳 context]
+    C -- 否 --> D[Layer 2 向量 RPC<br/>match_vector_questions]
+    D --> E{Layer 2 有結果?}
+    E -- 是 --> Z
+    E -- 否 --> F[Layer 3 ILIKE 文字後備]
+    F --> G{Layer 3 有結果?}
+    G -- 是 --> Z
+    G -- 否 --> N[回傳空 context]
+```
+
+建議圖說：
+「檢索流程採三層降級：先以同 topic 取樣確保課程相關性，再嘗試向量檢索，最後以文字後備降低失效風險。」
+
+==================================================
+[替換 5] 表 3：題庫知識點 × 難度分佈（原「【表 3】置於此」）
+==================================================
+表 3 題庫知識點—難度分佈（topic × difficulty）
+
+（你可先放模板，之後填數字）
+
+| topic_tag | L1 | L2 | L3 | L4 | 合計 |
+|---|---:|---:|---:|---:|---:|
+| vec_magnitude |  |  |  |  |  |
+| vec_addition |  |  |  |  |  |
+| scalar_mult |  |  |  |  |  |
+| vec_collinear |  |  |  |  |  |
+| dot_product |  |  |  |  |  |
+| vec_angle |  |  |  |  |  |
+| vec_geometry |  |  |  |  |  |
+| synthesis |  |  |  |  |  |
+| vec_perpendicular |  |  |  |  |  |
+| vec_section |  |  |  |  |  |
+| vec_projection |  |  |  |  |  |
+| vec_3d_coord |  |  |  |  |  |
+| vec_proof |  |  |  |  |  |
+| 合計 |  |  |  |  |  |
+
+建議表註：
+「本表統計 vector_questions 中各 topic 在不同難度層級的題目分佈，用於評估題庫覆蓋度與後續補題優先順序。」
+
+==================================================
+[你需自行補圖的 Placeholder]
+==================================================
+1) 圖 5-2：Socratic 對話介面截圖（網站畫面）
+2) 圖 5-4：掌握度儀表板截圖（網站畫面）
+
+建議截圖規範（保持一致）：
+- 寬度一致（同頁內同尺度）
+- 避免帶個資/金鑰
+- 圖說包含「頁面功能 + 與章節關聯」

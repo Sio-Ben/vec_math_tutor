@@ -2,20 +2,15 @@ import { NextResponse } from "next/server";
 import { deepseekChat, readDeepseekApiKey } from "@/lib/ai/deepseek";
 import { mockHintCoachReply } from "@/lib/ai/hint-coach-mock";
 import { logAiTrace } from "@/lib/ai/trace-logger";
-import { loadQuestionByIdFromDb } from "@/lib/tutor/load-questions";
-import { PRACTICE_QUESTIONS } from "@/lib/tutor/practice-questions";
+import type { PracticeQuestion } from "@/lib/tutor/practice-questions";
+import { resolvePracticeQuestion } from "@/lib/tutor/resolve-practice-question";
 
 type Body = {
   questionId: string;
   hintIndex: number;
   studentThought?: string | null;
+  inlineQuestion?: PracticeQuestion;
 };
-
-async function practiceQuestionById(id: string) {
-  const fromDb = await loadQuestionByIdFromDb(id);
-  if (fromDb) return fromDb;
-  return PRACTICE_QUESTIONS.find((q) => q.id === id);
-}
 
 /**
  * 依題庫 hint 作 grounding，產出導師改寫／提問式回覆（不直接回傳 DB 原句）。
@@ -35,7 +30,7 @@ export async function POST(req: Request) {
   const hintIndex =
     typeof body.hintIndex === "number" && body.hintIndex >= 0 ? body.hintIndex : 0;
 
-  const q = await practiceQuestionById(id);
+  const q = await resolvePracticeQuestion(id, body.inlineQuestion);
   if (!q) {
     return NextResponse.json({ error: "unknown question" }, { status: 404 });
   }

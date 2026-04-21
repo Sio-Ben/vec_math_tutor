@@ -1,3 +1,5 @@
+import type { PracticeQuestion } from "@/lib/tutor/practice-questions";
+
 /** 診斷摘要（由練習頁從 session 讀取後帶上） */
 export type TutorDiagnosticContext = {
   studentLevel: string;
@@ -11,6 +13,8 @@ export type TutorChatTurn = { role: "user" | "assistant"; content: string };
 /** 前端 → API（可帶對話歷史、之後可帶 RAG 片段） */
 export type TutorChatRequest = {
   questionId: string;
+  /** 未入庫的 AI 題等：與 `questionId` 對齊的完整題目快照；題庫題可省略 */
+  inlineQuestion?: PracticeQuestion;
   thought: string;
   selectedChoice: string | null;
   /** 填空題時學生輸入（可選，供之後 LLM） */

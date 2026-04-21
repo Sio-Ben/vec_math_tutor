@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "eslint",
     "embed:backfill": "node --env-file=.env.local scripts/backfill-embeddings.mjs",
-    "db:fix-backslash": "node --env-file=.env.local scripts/fix-double-backslash.mjs"
+    "db:fix-backslash": "node --env-file=.env.local scripts/fix-double-backslash.mjs",
+    "table3": "node --env-file=.env.local scripts/generate-table3.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.86.1",

@@ -9,24 +9,18 @@ import {
   stemToPlainWithLatex,
 } from "@/lib/ai/prompt-b";
 import { isPracticeAnswerCorrect } from "@/lib/tutor/evaluate-practice";
-import { loadQuestionByIdFromDb } from "@/lib/tutor/load-questions";
-import { PRACTICE_QUESTIONS } from "@/lib/tutor/practice-questions";
+import { resolvePracticeQuestion } from "@/lib/tutor/resolve-practice-question";
+import type { PracticeQuestion } from "@/lib/tutor/practice-questions";
 import type { TutorChatRequest, TutorChatResponse } from "@/lib/tutor/types";
 import { retrieveRagContext } from "@/lib/rag/retrieve-context";
 
-async function questionById(id: string) {
-  const fromDb = await loadQuestionByIdFromDb(id);
-  if (fromDb) return fromDb;
-  return PRACTICE_QUESTIONS.find((q) => q.id === id);
-}
-
-function correctAnswerForModel(q: Awaited<ReturnType<typeof questionById>>) {
+function correctAnswerForModel(q: PracticeQuestion | null | undefined) {
   if (!q) return "";
   if (q.kind === "mcq") return `選項 ${q.correctKey}`;
   return q.fillAnswer ?? "";
 }
 
-function topicLabel(q: NonNullable<Awaited<ReturnType<typeof questionById>>>) {
+function topicLabel(q: PracticeQuestion) {
   return q.topicTag ?? q.unitPill ?? "向量";
 }
 
@@ -71,7 +65,7 @@ function inferHintIndexFromThoughts(hints: string[], thoughts: string[]): number
 }
 
 function studentAnswerSummaryForPrompt(
-  q: NonNullable<Awaited<ReturnType<typeof questionById>>>,
+  q: PracticeQuestion,
   selectedChoice: string | null | undefined,
   studentFillAnswer: string | null | undefined,
 ): string {
@@ -87,7 +81,9 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
-  const q = body?.questionId ? await questionById(body.questionId) : undefined;
+  const q = body?.questionId?.trim()
+    ? await resolvePracticeQuestion(body.questionId, body.inlineQuestion)
+    : undefined;
   if (!q) {
     return NextResponse.json({ error: "unknown questionId" }, { status: 400 });
   }
