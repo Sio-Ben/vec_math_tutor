@@ -1,114 +1,88 @@
-# AI 向量教學助手（Math Tutor）
+# 基於大語言模型的向量智能教學助手
 
-面向澳門高中「平面向量」單元的智慧輔學原型。  
-系統流程為：**診斷測驗 -> 練習引導 -> Socratic 對話 -> 批次報告 -> 掌握追蹤**。
+## 1. 研究定位
 
-本專案採 **無登入、單工作階段（sessionStorage）** 設計，重點在教學流程與 AI 輔助策略，而非帳號系統。
+本專案是一個面向澳門高中數學「平面向量」單元的 Intelligent Tutoring System（ITS）原型。系統目標不是提供直接答案，而是透過可追蹤、可降級、可量化的 AI 輔助流程，支援學生在課後進行結構化練習與反思。
 
-## 專案目標
+本系統採用「診斷 -> 練習 -> 對話引導 -> 批次回饋 -> 掌握追蹤」學習閉環，並以工程可重現性為核心，提供 Prompt 附錄、指標欄位與 trace 日誌，供研究者與自動化評審系統直接檢視。
 
-- 提供可落地的向量單元學習閉環（診斷、練習、回饋、追蹤）
-- 讓 AI 參與出題與教學對話，但保留可控的後端規則約束
-- 支援論文撰寫所需的 prompt 附錄、可觀測紀錄與可重現資料輸出
+## 2. 核心研究問題
 
-## 技術棧
+- 如何將診斷結果與練習事件轉化為可解釋的推薦與回饋？
+- 如何在成本與延遲可控下，降低 AI 自動命題錯誤率？
+- 如何讓 Socratic 對話與前端提示狀態保持一致？
+- 如何在向量檢索不可用時，仍保證系統可運作？
 
-- 前端與全端框架：`Next.js 16`（App Router）、`React 19`、`TypeScript`
-- UI：`Tailwind CSS v4`、`KaTeX`、`MathLive`
-- 資料庫：`Supabase (PostgreSQL)`，可搭配 `pgvector`
+## 3. 方法總覽
+
+### 3.1 系統決策策略
+
+本專案採「**演算法主控、AI 輔助**」：
+
+- AI：提供語意分析與候選建議（排序、生成、摘要）。
+- 演算法：決定最終升降級與組批行為，確保規則一致性。
+
+批次升降級以 `baselineLevel -> difficultyAdvice -> recommendedLevel` 執行單步轉移（最多 ±1 級），避免 advice 與 level 方向矛盾。
+
+### 3.2 題目編排與命題流程
+
+`/api/practice/ai-curation` 執行下列流程：
+
+1. 建立候選池（弱項優先）
+2. AI 排序（order）
+3. 條件式補題（題量不足、弱項覆蓋不足、L4 模式、缺 AI 題）
+4. 生成與驗題雙階段（Generate -> Validate）
+5. 輸出題組與可觀測 `meta`
+
+L4 採 `soft-ai-priority`：提高 AI 題比重，但不硬性要求 5/5 全 AI，生成不足時允許題庫補位並記錄補位率。
+
+### 3.3 Socratic 對話與未入庫題相容
+
+`/api/tutor/chat` 與 `/api/tutor/hint` 支援 `inlineQuestion`，使「AI 生成但尚未入庫」題目也可進行導師對話。伺服端解析順序為：DB 題目 -> 內建題庫 -> inline 快照（驗證後）。
+
+### 3.4 RAG 三層降級
+
+檢索策略：
+
+1. 同 topic 取樣
+2. pgvector RPC（若可用）
+3. ILIKE 文字後備
+
+確保 embedding 或 RPC 不可用時，系統仍可產生可用上下文。
+
+## 4. 量化指標與可觀測性
+
+### 4.1 批次與命題指標
+
+- `advice_level_consistency_rate`
+- `l4_ai_coverage`
+- `l4_fallback_rate`
+- `validation_reject_rate`
+- `invalidReasonStats`
+
+### 4.2 Trace 機制
+
+啟用 `AI_TRACE_LOG=1` 後，系統會將 prompt/response/result/error 輸出為 JSONL（`.debug/ai-traces`），便於後續 A/B 對照與效能分析。
+
+## 5. 技術與版本
+
+- Framework：`Next.js 16`（App Router）、`React 19`、`TypeScript`
+- Styling / Math：`Tailwind CSS v4`、`KaTeX`、`MathLive`
+- Data：`Supabase (PostgreSQL)` + 可選 `pgvector`
 - LLM：`DeepSeek Chat Completions`
-- 觀測與研究輸出：`JSONL trace`、題庫統計腳本（Table 3）
 
-## 快速開始
+## 6. 系統路由與 API
 
-```bash
-npm install
-cp .env.example .env.local
-npm run dev
-```
+### 6.1 前端路由
 
-Windows 可用：
+- `/`：流程入口
+- `/diagnostic`：診斷問卷
+- `/diagnostic/report`：診斷報告
+- `/practice`：練習與導師互動
+- `/practice/report`：批次練習回饋
+- `/mastery`：掌握追蹤儀表板
 
-```powershell
-copy .env.example .env.local
-```
-
-啟動後開啟 `http://localhost:3000`。
-
-## 常用指令
-
-| 指令 | 用途 |
-|---|---|
-| `npm run dev` | 開發模式 |
-| `npm run build` | 生產建置 |
-| `npm run start` | 啟動生產伺服器 |
-| `npm run lint` | 程式檢查 |
-| `npm run table3` | 匯出 topic x difficulty 分佈（論文表 3） |
-| `npm run embed:backfill` | 回填題庫 embedding |
-| `npm run db:fix-backslash` | 修正題庫反斜線資料格式 |
-
-## 環境變數重點
-
-至少需要：
-
-- `NEXT_PUBLIC_SUPABASE_URL`
-- `NEXT_PUBLIC_SUPABASE_ANON_KEY`
-
-啟用 AI 功能需要：
-
-- `DEEPSEEK_API_KEY`
-
-常用進階設定：
-
-- `SUPABASE_SERVICE_ROLE_KEY`（伺服端查詢與 RPC）
-- `SUPABASE_QUESTIONS_TABLE`（預設 `vector_questions`）
-- `DEEPSEEK_MODEL` / `DEEPSEEK_MODEL_GENERATE` / `DEEPSEEK_MODEL_VALIDATE`
-- `AI_VALIDATE_MAX_ROUNDS`
-- `AI_TRACE_LOG=1`（輸出到 `.debug/ai-traces/*.jsonl`）
-- `RAG_TOP_K`
-
-若要使用向量檢索，請先在 Supabase 建立 `vector` 擴展與對應 RPC（例如 `match_vector_questions`）。
-
-## 產品流程（學習閉環）
-
-1. `診斷測驗`（`/diagnostic`）產生初始能力概況
-2. `練習引導`（`/practice`）依弱項與建議等級安排題組
-3. `Socratic 導師`（`/api/tutor/chat`）根據學生思路給提示與追問
-4. `批次報告`（`/api/practice/batch-report`）每 5 題輸出策略回饋
-5. `掌握追蹤`（`/mastery`）匯總診斷 + 練習歷程形成總報告
-
-## 題目推薦與 AI 生成機制（現況）
-
-練習編排由 `/api/practice/ai-curation` 負責，流程為：
-
-1. 先從題庫取得候選題（含弱項優先）
-2. 以 AI 做題目排序（order）
-3. 若觸發條件成立（題量不足、弱項覆蓋不足、L4、缺 AI 題）則補 AI 題
-4. 新題先 generate，再經 validate，無效題淘汰
-5. 輸出最終題組與 `meta`（如生成數、fallback 數、驗題統計）
-
-## 升降級策略（研究重點）
-
-批次報告端點：`/api/practice/batch-report`
-
-- 輸入：當批作答結果 + `baselineLevel`（上一輪建議等級）
-- 輸出：`difficultyAdvice`（up/keep/down）+ `recommendedLevel`（L1-L4）
-- 後端綁定：以規則確保 advice 與 level 方向一致，避免語意矛盾
-
-> 簡述：AI 提供分析與建議語意，伺服端規則保證決策一致性。
-
-## 主要路由與 API
-
-### 頁面
-
-- `/`：首頁與流程導覽
-- `/diagnostic`：診斷題
-- `/diagnostic/report`：診斷結果頁
-- `/practice`：練習引導 + 導師互動
-- `/practice/report`：每批練習小結
-- `/mastery`：總掌握度報告
-
-### API
+### 6.2 後端 API
 
 - `POST /api/diagnostic/analyze`
 - `GET /api/practice/questions`
@@ -124,55 +98,64 @@ copy .env.example .env.local
 - `GET /api/health/llm`
 - `GET /api/health/supabase`
 
-## AI 題未入庫的相容設計
+## 7. 可重現性
 
-`/api/tutor/chat` 與 `/api/tutor/hint` 支援 `inlineQuestion`：
+### 7.1 快速啟動
 
-- 先查 DB 題目 id
-- 查不到則使用內建題庫
-- 再查不到時，允許用 `inlineQuestion`（需通過格式驗證）
-
-因此 AI 新生成但尚未入庫的題目，也可進行導師對話與提示改寫。
-
-## Prompt 與論文附錄
-
-- 完整 prompt 原文（1:1）請見：`docs/appendix_prompts.txt`
-- 主要 prompt 程式碼位置：`lib/ai/prompt-*.ts`
-- 論文引用建議固定 commit hash，避免文字與程式版本不一致
-
-## 研究資料與可重現輸出
-
-- Table 3（topic x difficulty）：`npm run table3`
-- AI trace（prompt/response/result）：設定 `AI_TRACE_LOG=1`
-- 若要做章節對照，建議把本 README 與 `docs/appendix_prompts.txt` 一起鎖定版本
-
-## 專案目錄（精簡）
-
-```text
-app/
-  (tutor)/         # 診斷、練習、報告、掌握頁面
-  api/             # 各 AI 與資料端點
-components/        # UI 元件與數學輸入/渲染
-lib/
-  ai/              # prompts、LLM 呼叫、trace
-  rag/             # embedding 與檢索
-  tutor/           # 題型、評分、題目解析
-  practice/        # 練習會話與快取
-docs/
-  appendix_prompts.txt
-scripts/
+```bash
+npm install
+cp .env.example .env.local
+npm run dev
 ```
 
-## 安全與限制
+Windows：
 
-- `.env.local` 不可提交版本庫
-- API 金鑰僅放伺服端變數
-- `inlineQuestion` 屬原型期權衡，正式產品建議改為伺服端持久化題目
+```powershell
+copy .env.example .env.local
+```
 
-## 維護建議
+### 7.2 常用命令
 
-每次調整 prompt、升降級規則、或 L4 策略時，請同步更新：
+| 指令 | 用途 |
+|---|---|
+| `npm run dev` | 開發模式 |
+| `npm run build` / `npm run start` | 建置與啟動 |
+| `npm run lint` | 靜態檢查 |
+| `npm run table3` | 匯出 topic x difficulty（論文表 3） |
+| `npm run embed:backfill` | 回填 embedding |
+| `npm run db:fix-backslash` | 修正題庫字串 |
 
-1. `docs/appendix_prompts.txt`
-2. 論文章節（方法、實驗、限制）
-3. 研究指標與圖表（若有新增 meta/trace 欄位）
+### 7.3 研究附錄文件
+
+- Prompt 原文：`docs/appendix_prompts.txt`
+- 論文整合稿：`docs/thesis_combined.tex`
+
+## 8. 環境變數摘要
+
+必要：
+
+- `NEXT_PUBLIC_SUPABASE_URL`
+- `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+- `DEEPSEEK_API_KEY`（啟用 AI）
+
+常用進階：
+
+- `SUPABASE_SERVICE_ROLE_KEY`
+- `SUPABASE_QUESTIONS_TABLE`（預設 `vector_questions`）
+- `DEEPSEEK_MODEL` / `DEEPSEEK_MODEL_GENERATE` / `DEEPSEEK_MODEL_VALIDATE`
+- `AI_VALIDATE_MAX_ROUNDS`
+- `AI_TRACE_LOG=1`
+- `RAG_TOP_K`
+
+## 9. 已知限制
+
+- 無帳號系統與跨裝置同步（session-based）
+- 題庫規模仍可擴充
+- LLM 幻覺可被降低但不可完全消除
+- L4 為高 AI 比重，非硬性全 AI
+
+## 10. 安全聲明
+
+- `.env.local` 不可提交版本控制
+- API 金鑰僅可置於伺服端環境變數
+- `inlineQuestion` 為原型期相容機制，正式部署建議採伺服端持久化

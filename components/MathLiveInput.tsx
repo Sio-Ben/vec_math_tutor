@@ -119,7 +119,7 @@ export function MathLiveInput({
       if (mf && onFocusIn) mf.removeEventListener("focusin", onFocusIn);
       if (mf) mf.remove();
       mfRef.current = null;
-      if (hostRef.current) hostRef.current.innerHTML = "";
+      host.innerHTML = "";
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- rebuild when instanceKey / mode changes
   }, [instanceKey, defaultMode, fieldClassName, smartMode]);

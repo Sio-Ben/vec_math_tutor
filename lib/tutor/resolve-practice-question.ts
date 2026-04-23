@@ -56,7 +56,7 @@ export function parseInlinePracticeQuestion(
     stemLatex.push(p);
   }
 
-  let options: { key: string; latex: string }[] = [];
+  const options: { key: string; latex: string }[] = [];
   let correctKey = "";
   let fillAnswer: string | null = null;
 

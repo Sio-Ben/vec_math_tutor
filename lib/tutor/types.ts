@@ -119,5 +119,20 @@ export type BatchReport = {
   nextTopicSuggestions: string[];
   difficultyAdvice: BatchReportDifficultyAdvice;
   recommendedLevel?: "L1" | "L2" | "L3" | "L4";
+  /** 演算法主控的升降級綁定資訊，供可觀測與論文指標使用 */
+  decisionMeta?: {
+    policy: "algorithm_primary_ai_assist";
+    baselineLevel: "L1" | "L2" | "L3" | "L4";
+    aiSuggestedAdvice: BatchReportDifficultyAdvice | null;
+    aiSuggestedLevel: "L1" | "L2" | "L3" | "L4" | null;
+    boundAdvice: BatchReportDifficultyAdvice;
+    finalRecommendedLevel: "L1" | "L2" | "L3" | "L4";
+    adviceLevelConsistent: boolean;
+    adviceLevelConsistencyRate: number;
+  };
+  /** 批次報告層可直接提取的量化指標 */
+  metrics?: {
+    advice_level_consistency_rate: number;
+  };
   questionResults: BatchQuestionResult[];
 };

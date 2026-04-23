@@ -4,7 +4,6 @@ import {
   Component,
   Fragment,
   type ReactNode,
-  type ErrorInfo,
 } from "react";
 import { BlockMath, InlineMath } from "react-katex";
 
@@ -69,7 +68,7 @@ class KatexErrorBoundary extends Component<
     return { hasError: true };
   }
 
-  componentDidCatch(_e: Error, _info: ErrorInfo) {
+  componentDidCatch() {
     /* KaTeX / react-katex 語法錯誤時改顯示後備文字 */
   }
 

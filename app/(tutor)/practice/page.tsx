@@ -464,6 +464,11 @@ export default function PracticePage() {
                     generatedCount?: number;
                     skippedReason?: string;
                     error?: string;
+                    l4Mode?: boolean;
+                    l4Policy?: "soft_ai_priority";
+                    l4AiCoverage?: number;
+                    l4FallbackRate?: number;
+                    validationRejectRate?: number;
                   };
                 };
                 if (j.questions?.length) finalQuestions = j.questions;
@@ -472,7 +477,22 @@ export default function PracticePage() {
                   aiNotes.push("已由 DeepSeek 依掌握報告調整練習題順序。");
                 }
                 if (l4Mode) {
-                  aiNotes.push("目前為 L4 強化模式：本批優先使用 AI 題並提高難度。");
+                  aiNotes.push("目前為 L4 強化模式：本批採高 AI 比重策略，若生成不足會由題庫題補位。");
+                  if (typeof j.meta?.l4AiCoverage === "number") {
+                    aiNotes.push(
+                      `本批 AI 題覆蓋率：${Math.round(j.meta.l4AiCoverage * 100)}%。`,
+                    );
+                  }
+                }
+                if (typeof j.meta?.validationRejectRate === "number") {
+                  aiNotes.push(
+                    `本輪驗題淘汰率：${Math.round(j.meta.validationRejectRate * 100)}%。`,
+                  );
+                }
+                if (l4Mode && typeof j.meta?.l4FallbackRate === "number") {
+                  aiNotes.push(
+                    `L4 補位率：${Math.round(j.meta.l4FallbackRate * 100)}%。`,
+                  );
                 }
                 if (j.meta?.skippedReason === "no_deepseek_key") {
                   aiNotes.push("未偵測到 DeepSeek 金鑰，已略過 AI 排序與補題。");
@@ -745,6 +765,7 @@ export default function PracticePage() {
     currentBatchId,
     currentBatchIndex,
     router,
+    tutorTurns,
   ]);
 
   const submitThought = useCallback(async () => {

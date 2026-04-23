@@ -124,6 +124,33 @@ function normalizeLevel(v: unknown, fallback: "L1" | "L2" | "L3" | "L4") {
   return fallback;
 }
 
+function bindAdviceAndLevel(params: {
+  baselineLevel: Level;
+  aiAdvice: "up" | "keep" | "down" | null;
+  aiLevel: Level | null;
+}): {
+  boundAdvice: "up" | "keep" | "down";
+  finalLevel: Level;
+  adviceLevelConsistent: boolean;
+  adviceLevelConsistencyRate: number;
+} {
+  const { baselineLevel, aiAdvice, aiLevel } = params;
+  // 演算法主控：若 AI level 有方向訊號，優先用方向；否則退回 AI advice；再不行則 keep。
+  const levelDerivedAdvice =
+    aiLevel != null ? compareAdvice(baselineLevel, aiLevel) : "keep";
+  const boundAdvice =
+    levelDerivedAdvice !== "keep" ? levelDerivedAdvice : (aiAdvice ?? "keep");
+  const finalLevel = shiftLevelByAdvice(baselineLevel, boundAdvice);
+  const adviceFromFinal = compareAdvice(baselineLevel, finalLevel);
+  const adviceLevelConsistent = adviceFromFinal === boundAdvice;
+  return {
+    boundAdvice,
+    finalLevel,
+    adviceLevelConsistent,
+    adviceLevelConsistencyRate: adviceLevelConsistent ? 1 : 0,
+  };
+}
+
 function studentFocusedSummary(text: string, fallback: string): string {
   const t = text.trim();
   if (!t) return fallback;
@@ -217,6 +244,24 @@ export async function POST(req: Request) {
     recommendedLevel: baselineLevel
       ? shiftLevelByAdvice(baselineLevel, base.difficultyAdvice)
       : base.recommendedLevel,
+    decisionMeta: {
+      policy: "algorithm_primary_ai_assist",
+      baselineLevel:
+        baselineLevel ??
+        normalizeLevel(base.recommendedLevel, "L2"),
+      aiSuggestedAdvice: null,
+      aiSuggestedLevel: null,
+      boundAdvice: base.difficultyAdvice,
+      finalRecommendedLevel:
+        (baselineLevel
+          ? shiftLevelByAdvice(baselineLevel, base.difficultyAdvice)
+          : base.recommendedLevel) ?? "L2",
+      adviceLevelConsistent: true,
+      adviceLevelConsistencyRate: 1,
+    },
+    metrics: {
+      advice_level_consistency_rate: 1,
+    },
     questionResults: results,
   };
 
@@ -286,10 +331,26 @@ export async function POST(req: Request) {
       report.recommendedLevel ?? "L2",
     );
     const baselineForBinding = baselineLevel ?? report.recommendedLevel ?? "L2";
-    const levelDerivedAdvice = compareAdvice(baselineForBinding, aiLevel);
-    const boundAdvice = levelDerivedAdvice !== "keep" ? levelDerivedAdvice : aiAdvice;
-    report.difficultyAdvice = boundAdvice;
-    report.recommendedLevel = shiftLevelByAdvice(baselineForBinding, boundAdvice);
+    const bound = bindAdviceAndLevel({
+      baselineLevel: baselineForBinding,
+      aiAdvice,
+      aiLevel,
+    });
+    report.difficultyAdvice = bound.boundAdvice;
+    report.recommendedLevel = bound.finalLevel;
+    report.decisionMeta = {
+      policy: "algorithm_primary_ai_assist",
+      baselineLevel: baselineForBinding,
+      aiSuggestedAdvice: aiAdvice,
+      aiSuggestedLevel: aiLevel,
+      boundAdvice: bound.boundAdvice,
+      finalRecommendedLevel: bound.finalLevel,
+      adviceLevelConsistent: bound.adviceLevelConsistent,
+      adviceLevelConsistencyRate: bound.adviceLevelConsistencyRate,
+    };
+    report.metrics = {
+      advice_level_consistency_rate: bound.adviceLevelConsistencyRate,
+    };
   } catch {
     await logAiTrace({
       route: "/api/practice/batch-report",

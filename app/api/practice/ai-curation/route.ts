@@ -279,9 +279,18 @@ export async function POST(req: Request) {
     invalidCount?: number;
     invalidReasonStats?: Record<InvalidReasonCode, number>;
     fallbackCount?: number;
+    targetLevel?: "L1" | "L2" | "L3" | "L4" | null;
+    l4Mode?: boolean;
+    l4AiCoverage?: number;
+    l4FallbackRate?: number;
+    validationRejectRate?: number;
+    l4Policy?: "soft_ai_priority";
   } = {
     orderedByAi: false,
     generatedCount: 0,
+    targetLevel,
+    l4Mode: forceAiBatch,
+    l4Policy: "soft_ai_priority",
   };
 
   if (!getDeepseekChatConfig()) {
@@ -400,6 +409,7 @@ export async function POST(req: Request) {
       meta.ragContextChars = ragTrim.length;
       let rounds = 0;
       let invalidCount = 0;
+      let reviewedCount = 0;
       let reasonStats: Record<InvalidReasonCode, number> = {
         ANSWER_MISMATCH: 0,
         OPTIONS_DUPLICATE: 0,
@@ -505,6 +515,7 @@ export async function POST(req: Request) {
           ? validateParsed.valid_questions
           : [];
         const invalidRowsRaw = Array.isArray(validateParsed.invalid) ? validateParsed.invalid : [];
+        reviewedCount += generatedRows.length;
         reasonStats = mergeReasonStats(reasonStats, normalizeInvalidStats(invalidRowsRaw));
         const validIds = new Set(
           validRowsRaw
@@ -557,6 +568,17 @@ export async function POST(req: Request) {
       meta.invalidReasonStats = reasonStats;
       meta.fallbackCount = fallbackCount;
       meta.generatedCount = accepted.length;
+      meta.validationRejectRate =
+        reviewedCount > 0
+          ? Math.max(
+              0,
+              Math.min(1, (reviewedCount - accepted.length) / reviewedCount),
+            )
+          : 0;
+      meta.l4FallbackRate =
+        forceAiBatch && targetGenerateCount > 0
+          ? Math.max(0, Math.min(1, fallbackCount / targetGenerateCount))
+          : 0;
       await logAiTrace({
         route: "/api/practice/ai-curation",
         phase: "result",
@@ -582,6 +604,14 @@ export async function POST(req: Request) {
     if (others.length > 0) {
       qs = [...qs, ...others];
     }
+    const visibleBatchSize = Math.min(minTotal, qs.length);
+    const visibleAiCount = qs
+      .slice(0, visibleBatchSize)
+      .filter((q) => q.source === "ai").length;
+    meta.l4AiCoverage =
+      forceAiBatch && visibleBatchSize > 0
+        ? Math.max(0, Math.min(1, visibleAiCount / visibleBatchSize))
+        : 0;
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     console.error("[practice/ai-curation]", msg);

@@ -40,15 +40,16 @@ function appendBatchReport(report: BatchReport) {
 }
 
 export default function PracticeBatchReportPage() {
-  const [active, setActive] = useState<StoredActiveBatch | null>(null);
+  const [active] = useState<StoredActiveBatch | null>(() => {
+    if (typeof window === "undefined") return null;
+    return readActiveBatch();
+  });
 
   useEffect(() => {
-    const a = readActiveBatch();
-    setActive(a);
-    if (a?.report) {
-      appendBatchReport(a.report);
+    if (active?.report) {
+      appendBatchReport(active.report);
     }
-  }, []);
+  }, [active]);
 
   const correctCount = useMemo(() => {
     const rows = active?.report?.questionResults ?? [];
@@ -187,6 +188,11 @@ export default function PracticeBatchReportPage() {
 
       <section className="rounded-[var(--r-card)] border border-[var(--border)] bg-[var(--bg-card)] p-5 shadow-[var(--shadow-card)]">
         <h2 className="text-base font-semibold text-[var(--txt)]">下次建議</h2>
+        {typeof active.report?.metrics?.advice_level_consistency_rate === "number" && (
+          <p className="mt-1 text-xs text-[var(--txt-3)]">
+            升降級一致率：{Math.round(active.report.metrics.advice_level_consistency_rate * 100)}%
+          </p>
+        )}
         <div className="mt-3 grid gap-3 sm:grid-cols-2">
           <div className="rounded-[var(--r-card)] border border-[var(--border)] bg-[var(--bg-card)] p-4 shadow-[var(--shadow-card)]">
             <p className="text-xs font-semibold text-[var(--txt-3)]">建議難度</p>
