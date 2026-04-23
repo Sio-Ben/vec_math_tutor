@@ -52,6 +52,119 @@ function CloudIcon(props: { className?: string }) {
   );
 }
 
+function LoadingSpinner(props: { className?: string }) {
+  return (
+    <span
+      className={`inline-block size-4 animate-spin rounded-full border-2 border-[var(--learn-200)] border-t-[var(--learn-600)] ${props.className ?? ""}`}
+      aria-hidden
+    />
+  );
+}
+
+function SkeletonBlock(props: { className: string }) {
+  return (
+    <div
+      className={`animate-pulse rounded-md bg-[var(--learn-100)]/70 ${props.className}`}
+    />
+  );
+}
+
+/** 與診斷問卷 MCQ 選項列相同的剪影：直向清單 + 圓形鍵 + 文字條 */
+function McqOptionRowSkeleton() {
+  return (
+    <div className="flex cursor-default items-center gap-3 rounded-xl border border-[var(--border)] bg-[var(--bg-card)] px-4 py-3">
+      <SkeletonBlock className="size-4 shrink-0 rounded-full" />
+      <SkeletonBlock className="size-6 shrink-0 rounded-full" />
+      <div className="min-w-0 flex-1 space-y-1.5">
+        <SkeletonBlock className="h-3.5 w-full max-w-[85%]" />
+        <SkeletonBlock className="h-3.5 w-full max-w-[55%] sm:max-w-[45%]" />
+      </div>
+    </div>
+  );
+}
+
+function PracticePageHeading() {
+  return (
+    <div>
+      <h1 className="font-[family-name:var(--font-display)] text-2xl font-bold text-[var(--txt)]">
+        練習引導
+      </h1>
+      <p className="mt-1 text-sm text-[var(--txt-2)]">
+        每批 5 題；作答後可提交思路，取得 Socratic 導師回饋。
+      </p>
+    </div>
+  );
+}
+
+function PracticeLoadingSkeleton() {
+  return (
+    <div className="mx-auto max-w-2xl space-y-5">
+      <PracticePageHeading />
+      <div className="rounded-xl border border-[var(--learn-200)] bg-[var(--learn-50)] px-4 py-3 text-xs text-[var(--learn-700)]">
+        <div className="flex items-center gap-2.5">
+          <LoadingSpinner />
+          <span>正在載入題庫與個人化題序…</span>
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        <div className="flex items-end justify-between gap-2">
+          <SkeletonBlock className="h-3.5 w-52 max-w-[72%]" />
+          <SkeletonBlock className="h-4 w-12 rounded-md" />
+        </div>
+        <div className="space-y-1.5">
+          <SkeletonBlock className="h-1.5 w-full rounded-full" />
+          <div className="flex gap-1">
+            {Array.from({ length: 5 }).map((_, idx) => (
+              <SkeletonBlock key={idx} className="h-1 flex-1 rounded-full" />
+            ))}
+          </div>
+        </div>
+        <div className="flex justify-end pt-0.5">
+          <SkeletonBlock className="h-8 w-28 rounded-xl" />
+        </div>
+      </div>
+
+      <section className="rounded-[var(--r-card)] border border-[var(--border)] border-l-4 border-l-[var(--learn-500)] rounded-l-none bg-[var(--bg-card)] p-6 shadow-[var(--shadow-card)]">
+        <div className="flex flex-wrap gap-2">
+          <SkeletonBlock className="h-5 w-10 rounded-[var(--r-pill)]" />
+          <SkeletonBlock className="h-5 w-24 rounded-[var(--r-pill)]" />
+          <SkeletonBlock className="h-5 w-16 rounded-[var(--r-pill)]" />
+        </div>
+        <div className="mt-5 space-y-2">
+          <SkeletonBlock className="h-4 w-full max-w-[95%]" />
+          <SkeletonBlock className="h-4 w-full max-w-[88%]" />
+          <SkeletonBlock className="h-4 w-full max-w-[72%]" />
+        </div>
+        <ul className="mt-6 space-y-2.5">
+          <li>
+            <McqOptionRowSkeleton />
+          </li>
+          <li>
+            <McqOptionRowSkeleton />
+          </li>
+          <li>
+            <McqOptionRowSkeleton />
+          </li>
+          <li>
+            <McqOptionRowSkeleton />
+          </li>
+        </ul>
+        <SkeletonBlock className="mt-6 h-11 w-full rounded-2xl" />
+      </section>
+
+      <section className="rounded-[var(--r-card)] border border-[var(--border)] bg-[var(--bg-card)] p-5 shadow-[var(--shadow-card)] sm:p-6">
+        <div className="flex items-center gap-2">
+          <SkeletonBlock className="h-5 w-5 rounded-full" />
+          <SkeletonBlock className="h-5 w-20" />
+        </div>
+        <SkeletonBlock className="mt-3 h-28 w-full rounded-2xl" />
+        <SkeletonBlock className="mt-4 h-11 w-full rounded-[var(--r-btn)]" />
+      </section>
+    </div>
+  );
+}
+
 function imageWrapperClass(position: string | null | undefined): string {
   const p = (position ?? "").toLowerCase();
   if (p.includes("直") || p.includes("portrait"))
@@ -327,17 +440,19 @@ export default function PracticePage() {
           const report = readDiagnosticReport();
           if (report) {
             try {
+              const masterySummary = readMasterySummary();
+              const l4Mode = masterySummary?.recommendedDifficulty === "L4";
               const cur = await fetch("/api/practice/ai-curation", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
                   report,
                   questions: data.questions,
-                  masterySummary: readMasterySummary(),
+                  masterySummary,
                   options: {
-                    minWeakTopicCoverage: 1,
+                    minWeakTopicCoverage: l4Mode ? 2 : 1,
                     minTotalQuestions: 5,
-                    maxGenerate: 20,
+                    maxGenerate: l4Mode ? 40 : 20,
                   },
                 }),
               });
@@ -355,6 +470,9 @@ export default function PracticePage() {
                 generatedCount = j.meta?.generatedCount ?? 0;
                 if (j.meta?.orderedByAi) {
                   aiNotes.push("已由 DeepSeek 依掌握報告調整練習題順序。");
+                }
+                if (l4Mode) {
+                  aiNotes.push("目前為 L4 強化模式：本批優先使用 AI 題並提高難度。");
                 }
                 if (j.meta?.skippedReason === "no_deepseek_key") {
                   aiNotes.push("未偵測到 DeepSeek 金鑰，已略過 AI 排序與補題。");
@@ -764,10 +882,15 @@ export default function PracticePage() {
     setHintPanelVisible(false);
   }, []);
 
-  if (loadState === "loading" || !q) {
+  if (loadState === "loading") {
+    return <PracticeLoadingSkeleton />;
+  }
+
+  if (!q) {
     return (
-      <div className="mx-auto max-w-2xl py-16 text-center text-sm text-zinc-400">
-        載入題庫…
+      <div className="mx-auto max-w-2xl space-y-4 py-12">
+        <PracticePageHeading />
+        <p className="text-center text-sm text-[var(--txt-3)]">載入題庫…</p>
       </div>
     );
   }
@@ -775,26 +898,26 @@ export default function PracticePage() {
   if (finished) {
     return (
       <div className="mx-auto max-w-2xl space-y-6">
-        <h1 className="text-center text-xl font-semibold text-zinc-100">
+        <h1 className="text-center text-xl font-semibold text-[var(--txt)]">
           本輪練習完成
         </h1>
-        <p className="text-center text-sm text-zinc-400">你已做完 {total} 題。</p>
+        <p className="text-center text-sm text-[var(--txt-2)]">你已做完 {total} 題。</p>
         <div className="flex flex-wrap justify-center gap-3">
           <Link
             href="/practice/report"
-            className="rounded-xl bg-violet-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-violet-500"
+            className="rounded-xl bg-[var(--learn-600)] px-5 py-2.5 text-sm font-semibold text-white hover:bg-[var(--learn-500)]"
           >
             查看本次 5 題小結
           </Link>
           <Link
             href="/mastery"
-            className="rounded-xl border border-violet-500/50 px-5 py-2.5 text-sm font-medium text-violet-200 hover:bg-zinc-800"
+            className="rounded-xl border border-[var(--learn-500)]/40 px-5 py-2.5 text-sm font-medium text-[var(--learn-700)] hover:bg-[var(--bg-hover)]"
           >
             掌握追蹤（AI 報告）
           </Link>
           <Link
             href="/"
-            className="rounded-xl border border-zinc-600 px-5 py-2.5 text-sm font-medium text-zinc-200 hover:bg-zinc-800"
+            className="rounded-xl border border-[var(--border)] px-5 py-2.5 text-sm font-medium text-[var(--txt)] hover:bg-[var(--bg-hover)]"
           >
             回到首頁
           </Link>
@@ -805,69 +928,85 @@ export default function PracticePage() {
 
   return (
     <div className="mx-auto max-w-2xl space-y-5">
-      {loadNote && (
-        <div className="flex items-start gap-2.5 rounded-xl border border-zinc-700/50 bg-zinc-800/60 px-4 py-3 text-xs text-zinc-300">
-          <span className="mt-0.5 shrink-0 text-violet-400">ℹ</span>
+      <PracticePageHeading />
+      {loadNote && questionIndex === 0 && (
+        <div className="flex items-start gap-2.5 rounded-xl border border-[var(--border)] bg-[var(--bg-inset)] px-4 py-3 text-xs text-[var(--txt-2)]">
+          <span className="mt-0.5 shrink-0 text-[var(--learn-500)]">ℹ</span>
           <span>{loadNote}</span>
         </div>
       )}
 
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <span className="rounded-full bg-violet-500/20 px-4 py-1.5 text-sm font-medium text-violet-200 ring-1 ring-violet-500/30">
-          {q.unitPill}
-          {q.difficulty ? (
-            <span className="ml-2 text-violet-300/70">· {q.difficulty}</span>
-          ) : null}
-          {q.source === "ai" ? (
-            <span className="ml-2 rounded-full bg-amber-500/25 px-2 py-0.5 text-[11px] font-semibold text-amber-200 ring-1 ring-amber-400/40">
-              AI生成
-            </span>
-          ) : null}
-        </span>
-        <span className="text-xs text-zinc-400">
-          累積已做 {totalSolvedCount} 題（不重複 {uniqueSolvedCount} 題）
-        </span>
-        <div className="flex items-center gap-3">
+      <div className="space-y-2">
+        <div className="flex flex-wrap items-end justify-between gap-2">
+          <p className="text-xs text-[var(--txt-2)]">
+            累積已做 {totalSolvedCount} 題（不重複 {uniqueSolvedCount} 題）
+          </p>
+          <span className="text-sm font-semibold tabular-nums text-[var(--learn-600)]">
+            {questionIndex + 1} / {total}
+          </span>
+        </div>
+        <div className="space-y-1.5">
+          <div className="h-1.5 overflow-hidden rounded-full bg-zinc-200">
+            <div
+              className="h-full rounded-full bg-[var(--learn-500)] transition-all duration-500 ease-out"
+              style={{ width: `${progressPct}%` }}
+            />
+          </div>
+          <div className="flex gap-1">
+            {Array.from({ length: total }).map((_, i) => (
+              <div
+                key={i}
+                className={`h-1 flex-1 rounded-full transition-all duration-300 ${
+                  i < questionIndex
+                    ? "bg-[var(--learn-500)]"
+                    : i === questionIndex
+                      ? "bg-[var(--learn-100)]"
+                      : "bg-zinc-200"
+                }`}
+              />
+            ))}
+          </div>
+        </div>
+        <div className="flex justify-end pt-0.5">
           <button
             type="button"
             onClick={reloadQuestions}
-            className="rounded-lg border border-zinc-600 px-2.5 py-1 text-[11px] font-medium text-zinc-300 hover:border-violet-500/50 hover:text-zinc-100"
+            className="rounded-xl border border-[var(--border)] bg-[var(--bg-card)] px-3 py-1.5 text-xs font-medium text-[var(--txt-2)] hover:border-[var(--learn-500)]/40 hover:bg-[var(--bg-hover)] hover:text-[var(--txt)]"
           >
             重新編排題目
           </button>
-          <div className="flex flex-col items-end gap-1">
-            <div className="h-1.5 w-28 overflow-hidden rounded-full bg-zinc-800 sm:w-40">
-              <div
-                className="h-full rounded-full bg-violet-500 transition-all duration-500 ease-out"
-                style={{ width: `${progressPct}%` }}
-              />
-            </div>
-            <div className="flex gap-0.5">
-              {Array.from({ length: total }).map((_, i) => (
-                <div
-                  key={i}
-                  className={`h-1 w-2.5 rounded-full transition-all duration-300 ${
-                    i < questionIndex
-                      ? "bg-violet-500"
-                      : i === questionIndex
-                        ? "bg-violet-400"
-                        : "bg-zinc-700"
-                  }`}
-                />
-              ))}
-            </div>
-          </div>
-          <span className="text-sm tabular-nums text-zinc-400">
-            {questionIndex + 1}/{total}
-          </span>
         </div>
       </div>
 
-      <section className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-5 sm:p-6">
-        <p className="text-xs font-medium text-violet-400">{q.typeLabel}</p>
+      <section
+        className={`overflow-hidden rounded-[var(--r-card)] border border-[var(--border)] border-l-4 rounded-l-none bg-[var(--bg-card)] shadow-[var(--shadow-card)] transition-shadow duration-200 hover:shadow-[var(--shadow-lift)] ${
+          q.difficulty === "L1"
+            ? "border-l-[var(--lvl1)]"
+            : q.difficulty === "L2"
+              ? "border-l-[var(--lvl2)]"
+              : "border-l-[var(--lvl3)]"
+        }`}
+      >
+        <div className="p-6">
+        <div className="flex flex-wrap gap-2 text-xs font-medium">
+          <span className="rounded-[var(--r-pill)] bg-zinc-100 px-2.5 py-0.5 text-[11px] font-medium leading-none tracking-wide text-zinc-700 ring-1 ring-zinc-300/50">
+            {q.difficulty || "L2"}
+          </span>
+          <span className="rounded-[var(--r-pill)] bg-[var(--lvl1)]/12 px-2.5 py-0.5 text-[11px] font-medium leading-none tracking-wide text-[var(--lvl1)] ring-1 ring-[var(--lvl1)]/25">
+            {q.unitPill}
+          </span>
+          <span className="rounded-[var(--r-pill)] bg-zinc-50 px-2.5 py-0.5 text-[11px] font-medium leading-none tracking-wide text-zinc-500 ring-1 ring-zinc-200">
+            {q.typeLabel}
+          </span>
+          {q.source === "ai" ? (
+            <span className="rounded-[var(--r-pill)] bg-[var(--clr-ai)]/15 px-2.5 py-0.5 text-[11px] font-medium leading-none tracking-wide text-[var(--clr-ai)] ring-1 ring-[var(--clr-ai)]/30">
+              AI生成
+            </span>
+          ) : null}
+        </div>
 
         {q.imageUrl ? (
-          <div className="mt-4 overflow-hidden rounded-xl border border-zinc-800 bg-zinc-950/50 p-2">
+          <div className="mt-5 overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--bg-inset)] p-2">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src={q.imageUrl}
@@ -877,50 +1016,66 @@ export default function PracticePage() {
           </div>
         ) : null}
 
-        <div className="mt-4 text-base leading-relaxed text-zinc-100">
+        <div className="mt-5 text-base leading-relaxed text-[var(--txt)] [&_.katex]:text-[var(--txt)]">
           {q.stemLatex.map((seg, i) =>
             seg.t === "text" ? (
               <span key={i}>{seg.v}</span>
             ) : (
-              <InlineLatex key={i} latex={seg.m} className="text-zinc-100" />
+              <InlineLatex key={i} latex={seg.m} className="text-[var(--txt)]" />
             ),
           )}
         </div>
 
         {q.kind === "mcq" ? (
-          <div className="mt-6 grid grid-cols-2 gap-3">
+          <ul className="mt-6 space-y-2.5">
             {q.options.map((opt) => {
               const on = selected === opt.key;
               return (
-                <button
-                  key={opt.key}
-                  type="button"
-                  onClick={() => setSelected(opt.key)}
-                  className={
-                    on
-                      ? "flex items-center gap-3 rounded-2xl border-2 border-violet-500 bg-violet-500/15 p-4 text-left transition"
-                      : "flex items-center gap-3 rounded-2xl border border-zinc-700 bg-zinc-950/40 p-4 text-left transition hover:border-zinc-600"
-                  }
-                >
-                  <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-violet-600 text-sm font-bold text-white">
-                    {opt.key}
-                  </span>
-                  <span className="text-lg text-zinc-100">
-                    <InlineLatex latex={opt.latex} className="text-zinc-100" />
-                  </span>
-                </button>
+                <li key={opt.key}>
+                  <label
+                    className={
+                      on
+                        ? "flex cursor-pointer items-center gap-3 rounded-xl border-2 border-[var(--learn-500)] bg-[var(--learn-50)] px-4 py-3 shadow-[0_0_0_3px_rgba(13,140,122,0.15)]"
+                        : "flex cursor-pointer items-center gap-3 rounded-xl border border-zinc-200 bg-[var(--bg-card)] px-4 py-3 hover:border-[var(--learn-500)]/40 hover:bg-[var(--learn-50)]/70"
+                    }
+                  >
+                    <input
+                      type="radio"
+                      className="size-4 accent-teal-700"
+                      name={`practice-q-${q.id}`}
+                      checked={on}
+                      onChange={() => setSelected(opt.key)}
+                    />
+                    <span
+                      className={`flex size-6 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${
+                        on
+                          ? "bg-[var(--learn-600)] text-white"
+                          : "bg-zinc-100 text-zinc-600"
+                      }`}
+                    >
+                      {opt.key}
+                    </span>
+                    <span className="text-sm text-[var(--txt)] [&_.katex]:text-[var(--txt)]">
+                      <InlineLatex latex={opt.latex} className="text-[var(--txt)]" />
+                    </span>
+                  </label>
+                </li>
               );
             })}
-          </div>
+          </ul>
         ) : (
-          <div className="mt-6 space-y-2">
-            <p className="text-sm font-medium text-zinc-300">你的答案</p>
+          <div className="mt-6">
+            <label className="text-xs font-medium text-[var(--txt-3)]">
+              你的答案
+            </label>
             <MathLiveInput
+              className="mt-1.5 block"
               instanceKey={`fill-${questionIndex}-${q.id}`}
               value={fillInput}
               onChange={setFillInput}
               defaultMode="math"
               keyboardHint={q.kind === "fill"}
+              fieldClassName="w-full min-h-[5.75rem] rounded-xl border border-[var(--border)] bg-[var(--bg-inset)] px-4 py-3 text-base text-[var(--txt)] shadow-inner outline-none focus:border-[var(--learn-500)] focus:ring-2 focus:ring-[var(--learn-500)]/20"
             />
           </div>
         )}
@@ -931,26 +1086,27 @@ export default function PracticePage() {
             void goNextQuestion();
           }}
           disabled={!canAdvance || nextPending}
-          className="mt-6 w-full rounded-2xl border border-zinc-600 bg-zinc-800/80 py-3 text-sm font-semibold text-zinc-100 transition hover:bg-zinc-700 disabled:cursor-not-allowed disabled:border-zinc-800 disabled:bg-zinc-900 disabled:text-zinc-600"
+          className="mt-6 w-full rounded-[var(--r-btn)] bg-[var(--learn-600)] px-6 py-2.5 text-sm font-medium text-white shadow-[0_2px_0_var(--learn-700)] transition-all hover:-translate-y-px hover:bg-[var(--learn-500)] hover:shadow-[0_4px_0_var(--learn-700)] active:translate-y-px disabled:translate-y-0 disabled:cursor-not-allowed disabled:bg-[var(--learn-100)] disabled:text-[var(--learn-700)] disabled:shadow-none"
         >
           {nextPending
             ? "整理本組中…"
             : isLast
               ? "完成本組 5 題"
-              : "下一題"}
+              : "下一題 →"}
         </button>
-        <p className="mt-2 text-center text-xs text-zinc-500">
+        <p className="mt-2 text-center text-xs text-[var(--txt-3)]">
           {q.kind === "mcq"
             ? "選好選項即可按「下一題」。若要導師回饋，請在下方提交思路。"
             : "填寫答案後可按「下一題」。若要導師回饋，請在下方提交思路。"}
         </p>
+        </div>
       </section>
 
-      <section className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-5 sm:p-6">
-        <div className="flex items-center gap-2 text-zinc-100">
-          <CloudIcon className="size-5 text-violet-400" />
+      <section className="overflow-hidden rounded-[var(--r-card)] border border-[var(--border)] bg-[var(--bg-card)] p-5 shadow-[var(--shadow-card)] transition-shadow duration-200 hover:shadow-[var(--shadow-lift)] sm:p-6">
+        <div className="flex items-center gap-2 text-[var(--txt)]">
+          <CloudIcon className="size-5 text-[var(--learn-600)]" />
           <h2 className="font-semibold">你的思路</h2>
-          <span className="ml-auto text-xs text-zinc-500">寫一步也可以，不用完整</span>
+          <span className="ml-auto text-xs text-[var(--txt-3)]">寫一步也可以，不用完整</span>
         </div>
         <MathLiveInput
           className="mt-3"
@@ -960,7 +1116,7 @@ export default function PracticePage() {
           defaultMode="math"
           smartMode
           keyboardHint={q.kind === "mcq"}
-          fieldClassName="w-full min-h-[7rem] rounded-2xl border border-zinc-700 bg-[#0a0b10] px-3 py-2 text-base text-zinc-100 shadow-inner"
+          fieldClassName="w-full min-h-[7rem] rounded-xl border border-[var(--border)] bg-[var(--bg-inset)] px-4 py-3 text-base text-[var(--txt)] shadow-inner outline-none focus:border-[var(--learn-500)] focus:ring-2 focus:ring-[var(--learn-500)]/20"
         />
         {error && (
           <p className="mt-2 flex items-center gap-1.5 text-xs text-amber-400">
@@ -971,7 +1127,7 @@ export default function PracticePage() {
           type="button"
           onClick={submitThought}
           disabled={!thought.trim() || pending}
-          className="mt-4 w-full rounded-2xl bg-violet-600 py-3 text-sm font-semibold text-white shadow-sm hover:bg-violet-500 disabled:cursor-not-allowed disabled:bg-zinc-700 disabled:text-zinc-500"
+          className="mt-4 w-full rounded-[var(--r-btn)] bg-[var(--learn-600)] px-6 py-2.5 text-sm font-medium text-white shadow-[0_2px_0_var(--learn-700)] transition-all hover:-translate-y-px hover:bg-[var(--learn-500)] hover:shadow-[0_4px_0_var(--learn-700)] active:translate-y-px disabled:translate-y-0 disabled:cursor-not-allowed disabled:bg-[var(--learn-100)] disabled:text-[var(--learn-700)] disabled:shadow-none"
         >
           {pending ? "分析中…" : "提交思路"}
         </button>
@@ -979,21 +1135,22 @@ export default function PracticePage() {
 
       {tutorVisible && (
         <>
-          <section className="rounded-2xl border border-violet-500/35 bg-zinc-900/95 p-5 shadow-sm sm:p-6">
+          <section className="relative overflow-hidden rounded-[var(--r-card)] border border-[var(--learn-500)]/30 bg-[var(--bg-card)] p-5 shadow-[var(--shadow-card)] sm:p-6">
+            <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-[var(--learn-500)]/80 to-transparent" />
             <div className="flex items-center gap-2.5">
-              <span className="flex size-9 items-center justify-center rounded-full bg-violet-600 text-xs font-bold text-white shadow-sm">
+              <span className="flex h-7 w-7 items-center justify-center rounded-full border border-[var(--learn-500)]/50 bg-[var(--learn-50)] text-xs font-bold text-[var(--learn-700)]">
                 AI
               </span>
               <div>
-                <h2 className="font-semibold text-zinc-100">導師回應</h2>
-                <p className="text-xs text-violet-300/80">Socratic 引導</p>
+                <h2 className="font-semibold text-[var(--txt)]">導師回應</h2>
+                <p className="text-xs text-[var(--learn-600)]">Socratic 引導</p>
               </div>
             </div>
-            <div className="mt-4 text-zinc-100">
-              <TutorMixedContent text={tutorText} className="text-zinc-100" />
+            <div className="mt-4 text-[var(--txt)]">
+              <TutorMixedContent text={tutorText} className="text-[var(--txt)]" />
             </div>
             {tutorNotice && (
-              <p className="mt-3 rounded-xl border border-amber-600/40 bg-amber-50 px-3 py-2 text-xs text-amber-950 dark:border-amber-700/40 dark:bg-amber-950/30 dark:text-amber-200">
+              <p className="mt-3 rounded-xl border border-amber-600/40 bg-amber-50 px-3 py-2 text-xs text-amber-950">
                 {tutorNotice}
               </p>
             )}
@@ -1004,32 +1161,32 @@ export default function PracticePage() {
                   void requestHint();
                 }}
                 disabled={!canRequestMoreHint || hintPending}
-                className="rounded-xl border border-violet-400/60 bg-violet-100 px-4 py-2 text-sm font-medium text-violet-950 hover:bg-violet-50 disabled:cursor-not-allowed disabled:border-zinc-700 disabled:bg-zinc-800 disabled:text-zinc-500"
+                className="rounded-xl border border-[var(--learn-300)] bg-[var(--learn-100)] px-4 py-2 text-sm font-medium text-[var(--learn-700)] transition-colors hover:bg-[var(--learn-50)] disabled:cursor-not-allowed disabled:border-[var(--learn-200)] disabled:bg-[var(--learn-50)] disabled:text-[var(--learn-700)] disabled:opacity-55"
               >
                 {hintPending ? "產生中…" : "需要提示"}
               </button>
               <button
                 type="button"
                 onClick={thinkAgain}
-                className="rounded-xl border border-zinc-600/70 bg-transparent px-4 py-2 text-sm font-medium text-zinc-200 hover:bg-zinc-800"
+                className="rounded-xl border border-[var(--learn-200)] bg-[var(--bg-card)] px-4 py-2 text-sm font-medium text-[var(--learn-700)] transition-colors hover:bg-[var(--learn-50)]"
               >
                 我再想想
               </button>
             </div>
             {allHintsUnlocked && (
-              <p className="mt-3 text-xs text-zinc-400">
+              <p className="mt-3 text-xs text-[var(--txt-2)]">
                 提示已全部解鎖；若要重新開始本題思路，可按「我再想想」。
               </p>
             )}
           </section>
 
           {hintPanelVisible && q.hintSteps.length > 0 && (
-            <section className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-5 sm:p-6">
-              <h3 className="font-semibold text-zinc-100">提示進度</h3>
-              <p className="mt-1 text-xs text-zinc-500">
+            <section className="rounded-2xl border border-[var(--border)] bg-[var(--bg-card)] p-5 shadow-[var(--shadow-card)] sm:p-6">
+              <h3 className="font-semibold text-[var(--txt)]">提示進度</h3>
+              <p className="mt-1 text-xs text-[var(--txt-3)]">
                 未解鎖的提示不顯示內容，避免提前暴雷。
               </p>
-              <ul className="mt-3 divide-y divide-zinc-800">
+              <ul className="mt-3 divide-y divide-[var(--border)]">
                 {q.hintSteps.map((_, i) => {
                   const unlocked = i <= hintsThrough;
                   return (
@@ -1040,28 +1197,28 @@ export default function PracticePage() {
                       <div className="flex min-w-0 items-center gap-3">
                         {unlocked ? (
                           <span
-                            className="flex size-8 shrink-0 items-center justify-center rounded-full bg-emerald-500/25 text-sm text-emerald-400"
+                            className="flex size-8 shrink-0 items-center justify-center rounded-[var(--r-pill)] bg-[var(--clr-correct)]/15 text-sm text-[var(--clr-correct)] ring-1 ring-[var(--clr-correct)]/30"
                             aria-hidden
                           >
                             ✓
                           </span>
                         ) : (
-                          <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-zinc-800 text-sm text-zinc-500">
+                          <span className="flex size-8 shrink-0 items-center justify-center rounded-[var(--r-pill)] bg-[var(--learn-50)] text-sm text-[var(--txt-3)] ring-1 ring-[var(--learn-200)]">
                             {i + 1}
                           </span>
                         )}
                         <div
                           className={
                             unlocked
-                              ? "text-sm text-zinc-200"
-                              : "text-sm text-zinc-500"
+                              ? "text-sm text-[var(--txt)]"
+                              : "text-sm text-[var(--txt-3)]"
                           }
                         >
                           {unlocked
                             ? (
                               <TutorMixedContent
                                 text={q.hintSteps[i]}
-                                className="text-zinc-200"
+                                className="text-[var(--txt)]"
                               />
                             )
                             : `第 ${i + 1} 層提示（尚未解鎖）`}
@@ -1070,8 +1227,8 @@ export default function PracticePage() {
                       <span
                         className={
                           unlocked
-                            ? "shrink-0 rounded-full bg-emerald-500/20 px-2.5 py-1 text-xs font-medium text-emerald-400"
-                            : "shrink-0 rounded-full bg-zinc-800 px-2.5 py-1 text-xs font-medium text-zinc-500"
+                            ? "shrink-0 rounded-[var(--r-pill)] bg-[var(--clr-correct)]/15 px-2.5 py-1 text-xs font-medium text-[var(--clr-correct)] ring-1 ring-[var(--clr-correct)]/30"
+                            : "shrink-0 rounded-[var(--r-pill)] bg-[var(--learn-50)] px-2.5 py-1 text-xs font-medium text-[var(--txt-3)] ring-1 ring-[var(--learn-200)]"
                         }
                       >
                         {unlocked ? "已解鎖" : "鎖定"}
@@ -1085,16 +1242,16 @@ export default function PracticePage() {
         </>
       )}
 
-      <p className="text-center text-xs text-zinc-500">
-        題庫欄位對應見 <code className="rounded bg-zinc-800 px-1">lib/tutor/question-bank.ts</code>
+      <p className="text-center text-xs text-[var(--txt-3)]">
+        題庫欄位對應見 <code className="rounded bg-zinc-100 px-1">lib/tutor/question-bank.ts</code>
         。若讀不到表，請檢查{" "}
-        <code className="rounded bg-zinc-800 px-1">SUPABASE_QUESTIONS_TABLE</code>{" "}
+        <code className="rounded bg-zinc-100 px-1">SUPABASE_QUESTIONS_TABLE</code>{" "}
         與 RLS，或加上{" "}
-        <code className="rounded bg-zinc-800 px-1">SUPABASE_SERVICE_ROLE_KEY</code>。
+        <code className="rounded bg-zinc-100 px-1">SUPABASE_SERVICE_ROLE_KEY</code>。
         ·{" "}
         <Link
           href="/diagnostic/report"
-          className="text-violet-400 underline-offset-2 hover:underline"
+          className="text-[var(--learn-600)] underline-offset-2 hover:underline"
         >
           掌握報告
         </Link>

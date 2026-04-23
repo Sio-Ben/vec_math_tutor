@@ -24,15 +24,30 @@ function configureField(
   smartMode: boolean,
 ) {
   mf.defaultMode = mode;
+  mf.setAttribute("theme", "light");
   mf.setAttribute("smart-mode", smartMode ? "on" : "off");
   mf.mathVirtualKeyboardPolicy = "manual";
   mf.smartFence = true;
   mf.smartSuperscript = true;
   mf.removeExtraneousParentheses = true;
+  mf.style.setProperty("color-scheme", "light");
+  mf.style.setProperty("--hue", "168");
+  mf.style.setProperty("--caret-color", "#0d8c7a");
+  mf.style.setProperty("--selection-color", "#0b3d36");
+  mf.style.setProperty("--selection-background-color", "#c5ede4");
+  mf.style.setProperty("--contains-highlight-color", "#0d8c7a");
+  mf.style.setProperty("--contains-highlight-background-color", "#e7f6f2");
+  mf.style.setProperty("--placeholder-color", "#0d8c7a");
+  mf.style.setProperty("--box-placeholder-color", "#0d8c7a");
+  mf.style.setProperty("--box-placeholder-pressed-color", "#0b3d36");
 }
 
 function showMathVirtualKeyboard() {
   try {
+    if (typeof document !== "undefined") {
+      document.documentElement.setAttribute("theme", "light");
+      document.body.setAttribute("theme", "light");
+    }
     globalThis.window?.mathVirtualKeyboard?.show({ animate: true });
   } catch {
     /* ignore */
@@ -65,6 +80,10 @@ export function MathLiveInput({
       const ml = await import("mathlive");
       try {
         ml.initVirtualKeyboardInCurrentBrowsingContext();
+        if (typeof document !== "undefined") {
+          document.documentElement.setAttribute("theme", "light");
+          document.body.setAttribute("theme", "light");
+        }
       } catch {
         /* ignore */
       }
@@ -76,7 +95,7 @@ export function MathLiveInput({
       configureField(mf, defaultMode, smartMode);
       mf.className =
         fieldClassName?.trim() ||
-        "w-full min-h-[3.25rem] rounded-2xl border border-zinc-700 bg-[#0a0b10] px-3 py-2 text-base text-zinc-100 shadow-inner";
+        "w-full min-h-[3.25rem] rounded-xl border border-[var(--border)] bg-[var(--bg-inset)] px-4 py-3 text-base text-[var(--txt)] shadow-inner outline-none focus:border-[var(--learn-500)] focus:ring-2 focus:ring-[var(--learn-500)]/20";
       if (cancelled || !hostRef.current) return;
       mf.setValue(value || "", { focus: false, silenceNotifications: true });
       lastPropValue.current = value || "";
@@ -117,7 +136,7 @@ export function MathLiveInput({
     <div className={className}>
       <div ref={hostRef} className="desmos-math-host" />
       {keyboardHint ? (
-        <p className="mt-1.5 text-[10px] text-zinc-500">
+        <p className="mt-1.5 text-[10px] text-[var(--txt-3)]">
           點進輸入框會開啟數學鍵盤；完成後可按畫面底部「關閉鍵盤」。
         </p>
       ) : null}

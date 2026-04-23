@@ -41,20 +41,20 @@ export function MainNav() {
     <header
       className={
         isPracticeMode
-          ? "sticky top-0 z-40 border-b border-zinc-800 bg-[#0f1014]/96 backdrop-blur-md"
-          : "sticky top-0 z-40 border-b border-zinc-200/80 bg-white/92 backdrop-blur-md dark:border-zinc-800 dark:bg-zinc-950/92"
+          ? "relative sticky top-0 z-40 border-b border-[var(--border)] bg-[var(--bg-card)]/95 backdrop-blur-xl"
+          : "relative sticky top-0 z-40 border-b border-[var(--border)] bg-[var(--bg-card)]/90 shadow-[0_1px_0_rgba(0,0,0,0.04)] backdrop-blur-xl"
       }
     >
       {isPracticeMode && (
-        <div className="h-0.5 w-full bg-gradient-to-r from-violet-600 via-violet-400 to-violet-600/0" />
+        <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-[var(--learn-500)]/70 to-transparent" />
       )}
       <div className="mx-auto flex h-14 max-w-5xl items-center justify-between gap-4 px-4 sm:px-6">
         <Link
           href="/"
           className={
             isPracticeMode
-              ? "flex shrink-0 items-center gap-1.5 font-semibold tracking-tight text-violet-300 hover:text-violet-200"
-              : "flex shrink-0 items-center gap-1.5 font-semibold tracking-tight text-teal-800 hover:text-teal-600 dark:text-teal-300 dark:hover:text-teal-200"
+              ? "flex shrink-0 items-center gap-1.5 font-[family-name:var(--font-display)] font-semibold tracking-tight text-[var(--learn-700)] hover:text-[var(--learn-500)]"
+              : "flex shrink-0 items-center gap-1.5 font-[family-name:var(--font-display)] font-semibold tracking-tight text-[var(--learn-700)] hover:text-[var(--learn-500)]"
           }
         >
           <VectorIcon className="size-4.5" />
@@ -75,8 +75,8 @@ export function MainNav() {
                   href={href}
                   className={
                     active
-                      ? "rounded-lg bg-violet-500/20 px-3 py-1.5 text-sm font-medium text-violet-100 ring-1 ring-violet-500/30"
-                      : "rounded-lg px-3 py-1.5 text-sm text-zinc-400 hover:bg-zinc-800/70 hover:text-zinc-100"
+                      ? "rounded-[var(--r-btn)] bg-[var(--learn-500)] px-3 py-1.5 text-sm font-medium text-white shadow-[0_2px_8px_rgba(13,140,122,0.35)]"
+                      : "rounded-[var(--r-btn)] px-3 py-1.5 text-sm text-[var(--txt-2)] hover:bg-[var(--bg-hover)] hover:text-[var(--txt)]"
                   }
                 >
                   {label}
@@ -90,8 +90,8 @@ export function MainNav() {
                 href={href}
                 className={
                   active
-                    ? "rounded-lg bg-teal-100 px-3 py-1.5 text-sm font-medium text-teal-900 ring-1 ring-teal-300/50 dark:bg-teal-950/80 dark:text-teal-100 dark:ring-teal-700/40"
-                    : "rounded-lg px-3 py-1.5 text-sm text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800/70 dark:hover:text-zinc-100"
+                    ? "rounded-[var(--r-btn)] bg-[var(--learn-500)] px-3 py-1.5 text-sm font-medium text-white shadow-[0_2px_8px_rgba(13,140,122,0.35)]"
+                    : "rounded-[var(--r-btn)] px-3 py-1.5 text-sm text-[var(--txt-2)] hover:bg-[var(--bg-hover)] hover:text-[var(--txt)]"
                 }
               >
                 {label}

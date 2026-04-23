@@ -112,29 +112,29 @@ export default function DiagnosticPage() {
 
   const levelColor =
     q.level === "L1"
-      ? "border-l-teal-500"
+      ? "border-l-[var(--lvl1)]"
       : q.level === "L2"
-        ? "border-l-violet-500"
-        : "border-l-amber-500";
+        ? "border-l-[var(--lvl2)]"
+        : "border-l-[var(--lvl3)]";
 
   return (
     <div className="mx-auto max-w-2xl space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-2">
         <div>
-          <h1 className="text-2xl font-bold text-zinc-900 dark:text-zinc-50">初始診斷問卷</h1>
-          <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
+          <h1 className="text-2xl font-bold text-[var(--txt)]">初始診斷問卷</h1>
+          <p className="mt-1 text-sm text-[var(--txt-2)]">
             診斷用、非評分；約 8 題，請依直覺作答即可。
           </p>
         </div>
-        <span className="text-sm font-semibold tabular-nums text-teal-800 dark:text-teal-300">
+        <span className="text-sm font-semibold tabular-nums text-[var(--learn-600)]">
           {index + 1} / {total}
         </span>
       </div>
 
       <div className="space-y-1.5">
-        <div className="h-1.5 overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-800">
+        <div className="h-1.5 overflow-hidden rounded-full bg-zinc-200">
           <div
-            className="h-full rounded-full bg-teal-600 transition-all duration-500 ease-out dark:bg-teal-500"
+            className="h-full rounded-full bg-[var(--learn-500)] transition-all duration-500 ease-out"
             style={{ width: `${progress}%` }}
           />
         </div>
@@ -144,31 +144,31 @@ export default function DiagnosticPage() {
               key={i}
               className={`h-1 flex-1 rounded-full transition-all duration-300 ${
                 i < index
-                  ? "bg-teal-500 dark:bg-teal-400"
+                  ? "bg-[var(--learn-500)]"
                   : i === index
-                    ? "bg-teal-300 dark:bg-teal-600"
-                    : "bg-zinc-200 dark:bg-zinc-800"
+                    ? "bg-[var(--learn-100)]"
+                    : "bg-zinc-200"
               }`}
             />
           ))}
         </div>
       </div>
 
-      <article className={`rounded-2xl border border-zinc-200/80 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-900/70 overflow-hidden border-l-4 ${levelColor}`}>
+      <article className={`overflow-hidden rounded-[var(--r-card)] border border-[var(--border)] border-l-4 rounded-l-none bg-[var(--bg-card)] shadow-[var(--shadow-card)] transition-shadow duration-200 hover:shadow-[var(--shadow-lift)] ${levelColor}`}>
         <div className="p-6">
           <div className="flex flex-wrap gap-2 text-xs font-medium">
-            <span className="rounded-full bg-zinc-100 px-2.5 py-0.5 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">
+            <span className="rounded-[var(--r-pill)] bg-zinc-100 px-2.5 py-0.5 text-[11px] font-medium leading-none tracking-wide text-zinc-700 ring-1 ring-zinc-300/50">
               {q.level}
             </span>
-            <span className="rounded-full bg-teal-50 px-2.5 py-0.5 text-teal-900 dark:bg-teal-950/80 dark:text-teal-200">
+            <span className="rounded-[var(--r-pill)] bg-[var(--lvl1)]/12 px-2.5 py-0.5 text-[11px] font-medium leading-none tracking-wide text-[var(--lvl1)] ring-1 ring-[var(--lvl1)]/25">
               {q.topic}
             </span>
-            <span className="rounded-full bg-zinc-50 px-2.5 py-0.5 text-zinc-500 dark:bg-zinc-700 dark:text-zinc-300">
+            <span className="rounded-[var(--r-pill)] bg-zinc-50 px-2.5 py-0.5 text-[11px] font-medium leading-none tracking-wide text-zinc-500 ring-1 ring-zinc-200">
               {q.topicTag}
             </span>
           </div>
 
-          <div className="mt-5 text-base leading-relaxed text-zinc-900 dark:text-zinc-100">
+          <div className="mt-5 text-base leading-relaxed text-[var(--txt)] [&_.katex]:text-[var(--txt)]">
             <MixedStem parts={q.stem} />
           </div>
 
@@ -181,8 +181,8 @@ export default function DiagnosticPage() {
                     <label
                       className={
                         selected
-                          ? "flex cursor-pointer items-center gap-3 rounded-xl border-2 border-teal-600 bg-teal-50/80 px-4 py-3 shadow-sm dark:border-teal-500 dark:bg-teal-950/40"
-                          : "flex cursor-pointer items-center gap-3 rounded-xl border border-zinc-200 px-4 py-3 hover:border-teal-300 hover:bg-teal-50/40 dark:border-zinc-700 dark:hover:border-zinc-600 dark:hover:bg-zinc-800/50"
+                          ? "flex cursor-pointer items-center gap-3 rounded-xl border-2 border-[var(--learn-500)] bg-[var(--learn-50)] px-4 py-3 shadow-[0_0_0_3px_rgba(13,140,122,0.15)]"
+                          : "flex cursor-pointer items-center gap-3 rounded-xl border border-zinc-200 px-4 py-3 hover:border-[var(--learn-500)]/40 hover:bg-[var(--learn-50)]/70"
                       }
                     >
                       <input
@@ -197,13 +197,13 @@ export default function DiagnosticPage() {
                       <span
                         className={`flex size-6 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${
                           selected
-                            ? "bg-teal-600 text-white"
-                            : "bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300"
+                            ? "bg-[var(--learn-600)] text-white"
+                            : "bg-zinc-100 text-zinc-600"
                         }`}
                       >
                         {opt.key}
                       </span>
-                      <span className="text-sm text-zinc-800 dark:text-zinc-100">
+                      <span className="text-sm text-[var(--txt)] [&_.katex]:text-[var(--txt)]">
                         <MixedStem parts={[{ type: "math", latex: opt.latex }]} />
                       </span>
                     </label>
@@ -215,11 +215,11 @@ export default function DiagnosticPage() {
 
           {q.kind === "fill" && (
             <div className="mt-6">
-              <label className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
+              <label className="text-xs font-medium text-[var(--txt-3)]">
                 你的答案
               </label>
               <textarea
-                className="mt-1.5 w-full rounded-xl border border-zinc-200 bg-zinc-50/80 px-4 py-3 text-zinc-900 placeholder:text-zinc-400 focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/20 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100"
+                className="mt-1.5 w-full rounded-xl border border-[var(--border)] bg-[var(--bg-inset)] px-4 py-3 text-[var(--txt)] placeholder:text-[var(--txt-3)] focus:border-[var(--learn-500)] focus:outline-none focus:ring-2 focus:ring-[var(--learn-500)]/20"
                 rows={q.fillRows ?? 2}
                 placeholder={q.fillPlaceholder}
                 value={answers[q.id] ?? ""}
@@ -237,14 +237,14 @@ export default function DiagnosticPage() {
           type="button"
           onClick={goPrev}
           disabled={index === 0}
-          className="rounded-xl border border-zinc-300 bg-white px-4 py-2.5 text-sm font-medium text-zinc-700 hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300"
+          className="rounded-xl border border-[var(--border)] bg-[var(--bg-card)] px-4 py-2.5 text-sm font-medium text-[var(--txt-2)] hover:bg-[var(--bg-hover)] disabled:cursor-not-allowed disabled:opacity-40"
         >
           ← 上一題
         </button>
         <div className="flex gap-2">
           <Link
             href="/"
-            className="rounded-xl px-4 py-2.5 text-sm text-zinc-500 underline-offset-4 hover:text-zinc-700 hover:underline dark:text-zinc-400 dark:hover:text-zinc-200"
+            className="rounded-xl px-4 py-2.5 text-sm text-[var(--txt-3)] underline-offset-4 hover:text-[var(--txt)] hover:underline"
           >
             回到首頁
           </Link>
@@ -252,7 +252,7 @@ export default function DiagnosticPage() {
             type="button"
             onClick={goNext}
             disabled={!canProceed() || finishing}
-            className="rounded-xl bg-teal-700 px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-teal-800 disabled:cursor-not-allowed disabled:bg-zinc-300 dark:bg-teal-600 dark:hover:bg-teal-500 dark:disabled:bg-zinc-700"
+            className="rounded-[var(--r-btn)] bg-[var(--learn-600)] px-6 py-2 text-sm font-medium text-white shadow-[0_2px_0_var(--learn-700)] transition-all hover:-translate-y-px hover:bg-[var(--learn-500)] hover:shadow-[0_4px_0_var(--learn-700)] active:translate-y-px disabled:translate-y-0 disabled:cursor-not-allowed disabled:bg-[var(--learn-100)] disabled:text-[var(--learn-700)] disabled:shadow-none"
           >
             {finishing
               ? "分析中…"

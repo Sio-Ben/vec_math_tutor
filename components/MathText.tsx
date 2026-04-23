@@ -39,7 +39,7 @@ export function BlockLatex({ latex }: { latex: string }) {
 
 export function MixedStem({ parts }: { parts: StemPart[] }) {
   return (
-    <div className="text-[1.05rem] leading-relaxed text-zinc-800 dark:text-zinc-100">
+    <div className="text-[1.05rem] leading-relaxed text-[var(--txt)]">
       {parts.map((p, i) => {
         if (p.type === "text") {
           return <span key={i}>{p.value}</span>;
@@ -224,7 +224,7 @@ export function TutorMixedContent({
   const blocks = tokenizeDisplayBlocks(text);
   const root = className?.trim()
     ? `space-y-3 text-sm leading-relaxed ${className}`
-    : "space-y-3 text-sm leading-relaxed text-zinc-100";
+    : "space-y-3 text-sm leading-relaxed text-[var(--txt)]";
   return (
     <div className={root}>
       {blocks.map((tok, bi) => {

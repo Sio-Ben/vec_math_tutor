@@ -99,8 +99,19 @@ function normalizeLevelInput(v: unknown): Level | null {
   return null;
 }
 
-function maxLevel(a: Level, b: Level): Level {
-  return LEVEL_ORDER.indexOf(a) >= LEVEL_ORDER.indexOf(b) ? a : b;
+function compareAdvice(from: Level, to: Level): "up" | "keep" | "down" {
+  const f = LEVEL_ORDER.indexOf(from);
+  const t = LEVEL_ORDER.indexOf(to);
+  if (t > f) return "up";
+  if (t < f) return "down";
+  return "keep";
+}
+
+function shiftLevelByAdvice(level: Level, advice: "up" | "keep" | "down"): Level {
+  const idx = LEVEL_ORDER.indexOf(level);
+  if (advice === "up") return LEVEL_ORDER[Math.min(LEVEL_ORDER.length - 1, idx + 1)];
+  if (advice === "down") return LEVEL_ORDER[Math.max(0, idx - 1)];
+  return level;
 }
 
 function normalizeAdvice(v: unknown): "up" | "keep" | "down" {
@@ -204,7 +215,7 @@ export async function POST(req: Request) {
     nextTopicSuggestions: base.nextTopicSuggestions,
     difficultyAdvice: base.difficultyAdvice,
     recommendedLevel: baselineLevel
-      ? maxLevel(base.recommendedLevel, baselineLevel)
+      ? shiftLevelByAdvice(baselineLevel, base.difficultyAdvice)
       : base.recommendedLevel,
     questionResults: results,
   };
@@ -216,6 +227,7 @@ export async function POST(req: Request) {
   try {
     const promptPayload = {
       batchIndex: report.batchIndex,
+      baselineLevel: baselineLevel ?? null,
       results,
       attemptsSummary: {
         total: attempts.length,
@@ -268,14 +280,16 @@ export async function POST(req: Request) {
           .filter((x): x is string => typeof x === "string")
           .slice(0, 6)
       : [];
-    report.difficultyAdvice = normalizeAdvice(parsed.difficulty_advice);
+    const aiAdvice = normalizeAdvice(parsed.difficulty_advice);
     const aiLevel = normalizeLevel(
       parsed.recommended_level,
       report.recommendedLevel ?? "L2",
     );
-    report.recommendedLevel = baselineLevel
-      ? maxLevel(aiLevel, baselineLevel)
-      : aiLevel;
+    const baselineForBinding = baselineLevel ?? report.recommendedLevel ?? "L2";
+    const levelDerivedAdvice = compareAdvice(baselineForBinding, aiLevel);
+    const boundAdvice = levelDerivedAdvice !== "keep" ? levelDerivedAdvice : aiAdvice;
+    report.difficultyAdvice = boundAdvice;
+    report.recommendedLevel = shiftLevelByAdvice(baselineForBinding, boundAdvice);
   } catch {
     await logAiTrace({
       route: "/api/practice/batch-report",

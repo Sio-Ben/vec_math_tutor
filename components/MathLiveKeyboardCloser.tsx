@@ -37,7 +37,7 @@ export function MathLiveKeyboardCloser() {
     <button
       type="button"
       aria-label="關閉數學鍵盤"
-      className="fixed right-4 top-20 z-[10000] inline-flex items-center gap-1.5 rounded-full border border-zinc-600 bg-zinc-900/95 px-3 py-1.5 text-xs font-semibold text-zinc-100 shadow-lg backdrop-blur-sm hover:bg-zinc-800 dark:border-zinc-500 sm:right-6"
+      className="fixed right-4 top-20 z-[10000] inline-flex items-center gap-1.5 rounded-full border border-[var(--border)] bg-[var(--bg-card)]/95 px-3 py-1.5 text-xs font-semibold text-[var(--txt)] shadow-lg backdrop-blur-sm hover:bg-[var(--bg-hover)] sm:right-6"
       onClick={() => {
         try {
           globalThis.window?.mathVirtualKeyboard?.hide({ animate: true });

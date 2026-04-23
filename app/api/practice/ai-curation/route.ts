@@ -256,6 +256,7 @@ export async function POST(req: Request) {
     normalizeTargetLevel(masterySummary?.recommendedDifficulty) ??
     report?.recommended_start_level ??
     null;
+  const forceAiBatch = targetLevel === "L4";
   const minWeak = body.options?.minWeakTopicCoverage ?? 1;
   const minTotal = Math.max(5, body.options?.minTotalQuestions ?? 5);
   const maxGen = Math.max(1, body.options?.maxGenerate ?? 20);
@@ -371,6 +372,7 @@ export async function POST(req: Request) {
     const weakMatches = countWeakMatches(qs, weakTags);
     const hasAiQuestion = qs.some((q) => q.source === "ai");
     const needGen =
+      forceAiBatch ||
       qs.length === 0 ||
       qs.length < minTotal ||
       (weakTags.length > 0 && weakMatches < minWeak) ||
@@ -380,7 +382,9 @@ export async function POST(req: Request) {
       const shortage = Math.max(0, minTotal - qs.length);
       const targetGenerateCount = Math.min(
         maxGen,
-        Math.max(!hasAiQuestion ? 2 : 0, shortage),
+        forceAiBatch
+          ? Math.max(5, minTotal)
+          : Math.max(!hasAiQuestion ? 2 : 0, shortage),
       );
       if (targetGenerateCount <= 0) {
         if (others.length > 0) qs = [...qs, ...others];
@@ -572,7 +576,7 @@ export async function POST(req: Request) {
       if (accepted.length > 0) {
         const genIds = new Set(accepted.map((g) => g.id));
         const rest = qs.filter((q) => !genIds.has(q.id));
-        qs = [...accepted, ...rest];
+        qs = forceAiBatch ? [...accepted, ...rest.filter((q) => q.source === "ai")] : [...accepted, ...rest];
       }
     }
     if (others.length > 0) {

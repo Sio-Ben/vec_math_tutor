@@ -1,29 +1,111 @@
 @import "tailwindcss";
 
+/* ═══════════════════════════════════════
+   DESIGN TOKENS — vec_math_tutor
+   ═══════════════════════════════════════ */
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --learn-50: #edf9f6;
+  --learn-100: #c5ede4;
+  --learn-500: #0d8c7a;
+  --learn-600: #0a7364;
+  --learn-700: #085c50;
+  --learn-900: #03261f;
+
+  --practice-200: #c9c0fa;
+  --practice-300: #b0a4f7;
+  --practice-400: #9d8ef4;
+  --practice-500: #8b7cf6;
+  --practice-600: #6d5ee0;
+  --practice-800: #2d2462;
+
+  --lvl1: #0d8c7a;
+  --lvl2: #8b7cf6;
+  --lvl3: #e8a838;
+
+  --clr-correct: #22c55e;
+  --clr-review: #e8a838;
+  --clr-ai: #e8a838;
+  --clr-error: #f87171;
+  --clr-emerald: #10b981;
+
+  --bg-page: #f6f4ef;
+  --bg-card: #ffffff;
+  --bg-inset: #f9f8f5;
+  --bg-hover: rgba(0, 0, 0, 0.035);
+
+  --bg-dark-page: #0b0d1a;
+  --bg-dark-card: #111425;
+  --bg-dark-inset: #0d0f1e;
+  --bg-dark-hover: rgba(255, 255, 255, 0.05);
+
+  --txt: #111827;
+  --txt-2: #4b5563;
+  --txt-3: #9ca3af;
+
+  --txt-d: #e4e8f0;
+  --txt-d2: #8b93a8;
+  --txt-d3: #4b5468;
+
+  --border: rgba(0, 0, 0, 0.08);
+  --border-d: rgba(255, 255, 255, 0.08);
+
+  --r-card: 18px;
+  --r-btn: 10px;
+  --r-pill: 9999px;
+
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.06), 0 4px 20px rgba(0, 0, 0, 0.05);
+  --shadow-dark: 0 1px 0 rgba(255, 255, 255, 0.03) inset, 0 4px 32px rgba(0, 0, 0, 0.5);
+  --shadow-lift: 0 8px 40px rgba(0, 0, 0, 0.14);
+  --shadow-glow: 0 0 0 3px rgba(139, 124, 246, 0.2);
+
+  --font-display: var(--font-syne), "Noto Sans TC", ui-sans-serif;
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
   --font-sans: var(--font-noto-tc), ui-sans-serif, system-ui, sans-serif;
-  --font-mono: var(--font-geist-mono);
+  --font-display: var(--font-display);
+  --font-mono: var(--font-geist-mono), ui-monospace;
+
+  --color-background: var(--bg-page);
+  --color-foreground: var(--txt);
+
+  --color-learn: var(--learn-600);
+  --color-practice: var(--practice-500);
+  --color-lvl1: var(--lvl1);
+  --color-lvl2: var(--lvl2);
+  --color-lvl3: var(--lvl3);
+  --color-correct: var(--clr-correct);
+  --color-review: var(--clr-review);
+  --color-ai-badge: var(--clr-ai);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+h1,
+h2,
+h3 {
+  font-family: var(--font-display);
+  letter-spacing: -0.02em;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
+  background-color: var(--bg-page);
+  background-image: radial-gradient(circle, rgba(13, 140, 122, 0.12) 1px, transparent 1px);
+  background-size: 24px 24px;
+  color: var(--txt);
   font-family: var(--font-sans), "Noto Sans TC", ui-sans-serif, system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
+}
+
+.dark-bg {
+  background-color: var(--bg-dark-page);
+  background-image: radial-gradient(circle, rgba(139, 124, 246, 0.1) 1px, transparent 1px);
+  background-size: 28px 28px;
+}
+
+*,
+*::before,
+*::after {
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 a,
@@ -40,4 +122,72 @@ select {
 math-field::part(menu-toggle),
 math-field::part(virtual-keyboard-toggle) {
   display: none;
+}
+
+/* MathLive 輸入框（分式/括號 placeholder）固定亮色選取樣式 */
+math-field {
+  color-scheme: light;
+  --hue: 168;
+  --caret-color: #0d8c7a;
+  --selection-color: #0b3d36;
+  --selection-background-color: #c5ede4;
+  --contains-highlight-color: #0d8c7a;
+  --contains-highlight-background-color: #e7f6f2;
+  --placeholder-color: #0d8c7a;
+}
+
+body[theme="dark"] math-field,
+html[theme="dark"] math-field {
+  color-scheme: light;
+  --hue: 168;
+  --caret-color: #0d8c7a;
+  --selection-color: #0b3d36;
+  --selection-background-color: #c5ede4;
+  --contains-highlight-color: #0d8c7a;
+  --contains-highlight-background-color: #e7f6f2;
+  --placeholder-color: #0d8c7a;
+}
+
+/* MathLive 虛擬鍵盤改為亮色風格 */
+math-virtual-keyboard {
+  color-scheme: light !important;
+  --keyboard-toolbar-background: #f8fafc;
+  --keyboard-toolbar-text: #111827;
+  --keyboard-background: #ffffff;
+  --keyboard-border: #d1d5db;
+  --keycap-background: #ffffff;
+  --keycap-background-hover: #f3f4f6;
+  --keycap-background-active: #0d8c7a;
+  --keycap-border: #d1d5db;
+  --keycap-border-bottom: #9ca3af;
+  --keycap-text: #111827;
+  --keycap-text-active: #ffffff;
+  --keycap-primary-background: #0d8c7a;
+  --keycap-primary-text: #ffffff;
+  --keycap-secondary-background: #e5e7eb;
+  --keycap-secondary-text: #111827;
+  --keycap-secondary-border: #d1d5db;
+  --keycap-secondary-border-bottom: #9ca3af;
+}
+
+body[theme="dark"] math-virtual-keyboard,
+html[theme="dark"] math-virtual-keyboard {
+  color-scheme: light !important;
+  --keyboard-toolbar-background: #f8fafc;
+  --keyboard-toolbar-text: #111827;
+  --keyboard-background: #ffffff;
+  --keyboard-border: #d1d5db;
+  --keycap-background: #ffffff;
+  --keycap-background-hover: #f3f4f6;
+  --keycap-background-active: #0d8c7a;
+  --keycap-border: #d1d5db;
+  --keycap-border-bottom: #9ca3af;
+  --keycap-text: #111827;
+  --keycap-text-active: #ffffff;
+  --keycap-primary-background: #0d8c7a;
+  --keycap-primary-text: #ffffff;
+  --keycap-secondary-background: #e5e7eb;
+  --keycap-secondary-text: #111827;
+  --keycap-secondary-border: #d1d5db;
+  --keycap-secondary-border-bottom: #9ca3af;
 }
