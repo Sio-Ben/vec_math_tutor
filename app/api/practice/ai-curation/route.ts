@@ -123,13 +123,14 @@ function balanceGeneratedRows(rows: ReturnType<typeof coerceLlMQuestionRows>) {
   return [...mcq, ...fill];
 }
 
-function isValidPermutation(
-  orderedIds: string[],
+function isValidSelection(
+  selectedIds: string[],
   catalogIds: Set<string>,
+  targetCount: number,
 ): boolean {
-  if (orderedIds.length !== catalogIds.size) return false;
+  if (selectedIds.length !== targetCount) return false;
   const seen = new Set<string>();
-  for (const id of orderedIds) {
+  for (const id of selectedIds) {
     if (!catalogIds.has(id) || seen.has(id)) return false;
     seen.add(id);
   }
@@ -285,6 +286,7 @@ export async function POST(req: Request) {
     l4FallbackRate?: number;
     validationRejectRate?: number;
     l4Policy?: "soft_ai_priority";
+    orderMode?: "top_k_selection" | "legacy_permutation";
   } = {
     orderedByAi: false,
     generatedCount: 0,
@@ -314,6 +316,7 @@ export async function POST(req: Request) {
       const catalog = catalogForOrder(qs);
       const catalogIds = catalog.map((c) => c.id);
       const idSet = new Set(catalogIds);
+      const targetCount = Math.min(minTotal, catalogIds.length);
       await logAiTrace({
         route: "/api/practice/ai-curation",
         phase: "prompt",
@@ -335,6 +338,7 @@ export async function POST(req: Request) {
               masteryJson: JSON.stringify(masterySummary),
               catalogJson: JSON.stringify(catalog),
               catalogIds,
+              targetCount,
             }),
           },
         ],
@@ -347,6 +351,7 @@ export async function POST(req: Request) {
         payload: orderText,
       });
       const orderParsed = safeParseModelJson(orderText) as {
+        selected_ids?: unknown;
         ordered_ids?: unknown;
         rationale?: string;
       };
@@ -356,16 +361,36 @@ export async function POST(req: Request) {
         meta: { step: "order", parsed: true },
         payload: orderParsed,
       });
-      const orderedIds = Array.isArray(orderParsed.ordered_ids)
+      const selectedIds = Array.isArray(orderParsed.selected_ids)
+        ? orderParsed.selected_ids.filter((x): x is string => typeof x === "string")
+        : [];
+      const legacyOrderedIds = Array.isArray(orderParsed.ordered_ids)
         ? orderParsed.ordered_ids.filter((x): x is string => typeof x === "string")
         : [];
-      if (isValidPermutation(orderedIds, idSet)) {
-        qs = reorderQuestionsByIds(qs, orderedIds);
+      if (isValidSelection(selectedIds, idSet, targetCount)) {
+        qs = reorderQuestionsByIds(qs, selectedIds);
         meta.orderedByAi = true;
+        meta.orderMode = "top_k_selection";
         meta.orderRationale =
           typeof orderParsed.rationale === "string"
             ? orderParsed.rationale.slice(0, 500)
             : null;
+      } else if (legacyOrderedIds.length === catalogIds.length) {
+        const legacySeen = new Set<string>();
+        const legacyValid = legacyOrderedIds.every((id) => {
+          if (!idSet.has(id) || legacySeen.has(id)) return false;
+          legacySeen.add(id);
+          return true;
+        });
+        if (legacyValid) {
+          qs = reorderQuestionsByIds(qs, legacyOrderedIds.slice(0, targetCount));
+          meta.orderedByAi = true;
+          meta.orderMode = "legacy_permutation";
+          meta.orderRationale =
+            typeof orderParsed.rationale === "string"
+              ? orderParsed.rationale.slice(0, 500)
+              : null;
+        }
       }
     }
 

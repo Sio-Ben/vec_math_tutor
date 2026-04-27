@@ -9,6 +9,7 @@ export function buildPracticeOrderUser(input: {
   masteryJson?: string;
   catalogJson: string;
   catalogIds: string[];
+  targetCount: number;
 }): string {
   return `你是澳門高中數學向量單元的題組編排助手。下面有一份「診斷掌握報告」以及目前題庫中可練習的題目清單（僅含 id、知識標籤、難度、題型、題幹摘要）。
 
@@ -24,17 +25,21 @@ ${input.catalogJson}
 ===== 題目 id 列表（與上表一致，供你核對）=====
 ${JSON.stringify(input.catalogIds)}
 
+===== 本輪需輸出題數 =====
+${input.targetCount}
+
 ===== 任務 =====
 請輸出 JSON，格式嚴格如下：
 {
-  "ordered_ids": ["題目id1", "題目id2", ...],
+  "selected_ids": ["題目id1", "題目id2", ...],
   "rationale": "用繁體中文簡短說明排序邏輯（給教學系統備查，不直接給學生看）"
 }
 
 規則：
-1. ordered_ids 必須是「上面題目 id 列表」的**排列**：每個 id 恰好出現一次，不可新增不存在的 id、不可漏 id。
-2. 排序優先：先遵循「總掌握摘要」的 recommendedTopicOrder / recommendedDifficulty；再參考診斷報告 weak_topics／recommended_start_level／mastery_score。弱項與建議難度對應題應靠前；強項可稍後；題型可穿插避免單調。
-3. 若清單僅 1 題，ordered_ids 長度仍為 1。`;
+1. selected_ids 僅可從「上面題目 id 列表」中挑選，不可新增不存在的 id，且不可重複。
+2. selected_ids 長度必須等於「本輪需輸出題數」。
+3. 請先遵循「總掌握摘要」的 recommendedTopicOrder / recommendedDifficulty；再參考診斷報告 weak_topics／recommended_start_level／mastery_score。弱項與建議難度對應題應優先入選；強項可稍後；題型可穿插避免單調。
+4. 若候選清單少於本輪需輸出題數，selected_ids 請輸出候選清單全部 id（仍保持不重複），並在 rationale 說明不足情況。`;
 }
 
 export const PRACTICE_GENERATE_SYSTEM = `你只輸出一段合法 JSON 物件，不要 markdown、不要程式碼围栏。JSON 內須含鍵 "questions"，其值為陣列。`;
