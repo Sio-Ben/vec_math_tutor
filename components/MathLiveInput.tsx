@@ -73,6 +73,7 @@ export function MathLiveInput({
     let mf: MathfieldElement | null = null;
     let onInput: (() => void) | null = null;
     let onFocusIn: (() => void) | null = null;
+    let hostEl: HTMLDivElement | null = null;
 
     void (async () => {
       await import("mathlive/fonts.css");
@@ -89,6 +90,7 @@ export function MathLiveInput({
       }
       const host = hostRef.current;
       if (cancelled || !host) return;
+      hostEl = host;
 
       host.innerHTML = "";
       mf = document.createElement("math-field") as MathfieldElement;
@@ -119,7 +121,7 @@ export function MathLiveInput({
       if (mf && onFocusIn) mf.removeEventListener("focusin", onFocusIn);
       if (mf) mf.remove();
       mfRef.current = null;
-      host.innerHTML = "";
+      if (hostEl) hostEl.innerHTML = "";
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- rebuild when instanceKey / mode changes
   }, [instanceKey, defaultMode, fieldClassName, smartMode]);
