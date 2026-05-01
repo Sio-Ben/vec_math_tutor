@@ -16,7 +16,28 @@ type MathLiveInputProps = {
   fieldClassName?: string;
   /** 是否顯示鍵盤操作說明（同一頁多個欄位時建議只有一個為 true） */
   keyboardHint?: boolean;
+  /** 修正 MathLive 向量鍵把整段中文包進箭頭的行為 */
+  normalizeVectorText?: boolean;
 };
+
+function splitVectorContent(inner: string) {
+  let outside = "";
+  let inside = "";
+  for (const ch of inner) {
+    if (/[A-Za-z0-9]/.test(ch)) inside += ch;
+    else outside += ch;
+  }
+  return { outside, inside };
+}
+
+function normalizeVectorTextScope(latex: string): string {
+  return latex.replace(/\\(vec|overrightarrow)\{([^{}]*)\}/g, (full, cmd, inner) => {
+    const { outside, inside } = splitVectorContent(String(inner));
+    if (!outside) return full;
+    const vector = inside ? `\\${cmd}{${inside}}` : `\\${cmd}{}`;
+    return `${outside}${vector}`;
+  });
+}
 
 function configureField(
   mf: MathfieldElement,
@@ -30,13 +51,19 @@ function configureField(
   mf.smartFence = true;
   mf.smartSuperscript = true;
   mf.removeExtraneousParentheses = true;
+  const textFontFamily =
+    'var(--font-noto-tc), "Noto Sans TC", ui-sans-serif, system-ui, sans-serif';
   mf.style.setProperty("color-scheme", "light");
+  mf.style.setProperty("font-family", textFontFamily);
+  mf.style.setProperty("--text-font-family", textFontFamily);
   mf.style.setProperty("--hue", "168");
   mf.style.setProperty("--caret-color", "#0d8c7a");
-  mf.style.setProperty("--selection-color", "#0b3d36");
-  mf.style.setProperty("--selection-background-color", "#c5ede4");
-  mf.style.setProperty("--contains-highlight-color", "#0d8c7a");
-  mf.style.setProperty("--contains-highlight-background-color", "#e7f6f2");
+  mf.style.setProperty("--selection-color", "#111827");
+  mf.style.setProperty("--selection-background-color", "#e5e7eb");
+  mf.style.setProperty("--highlight-text", "transparent");
+  mf.style.setProperty("--text-highlight-background-color", "transparent");
+  mf.style.setProperty("--contains-highlight-color", "inherit");
+  mf.style.setProperty("--contains-highlight-background-color", "transparent");
   mf.style.setProperty("--placeholder-color", "#0d8c7a");
   mf.style.setProperty("--box-placeholder-color", "#0d8c7a");
   mf.style.setProperty("--box-placeholder-pressed-color", "#0b3d36");
@@ -63,6 +90,7 @@ export function MathLiveInput({
   smartMode = false,
   fieldClassName,
   keyboardHint = true,
+  normalizeVectorText = false,
 }: MathLiveInputProps) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const mfRef = useRef<MathfieldElement | null>(null);
@@ -103,7 +131,15 @@ export function MathLiveInput({
       lastPropValue.current = value || "";
 
       onInput = () => {
-        const next = mf!.value;
+        let next = mf!.value;
+        if (normalizeVectorText) {
+          const normalized = normalizeVectorTextScope(next);
+          if (normalized !== next) {
+            next = normalized;
+            mf!.setValue(next, { focus: true, silenceNotifications: true });
+            mf!.position = mf!.lastOffset;
+          }
+        }
         lastPropValue.current = next;
         onChange(next);
       };
@@ -124,7 +160,7 @@ export function MathLiveInput({
       if (hostEl) hostEl.innerHTML = "";
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- rebuild when instanceKey / mode changes
-  }, [instanceKey, defaultMode, fieldClassName, smartMode]);
+  }, [instanceKey, defaultMode, fieldClassName, smartMode, normalizeVectorText]);
 
   useEffect(() => {
     const el = mfRef.current;

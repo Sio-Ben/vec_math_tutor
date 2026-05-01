@@ -127,24 +127,32 @@ math-field::part(virtual-keyboard-toggle) {
 /* MathLive 輸入框（分式/括號 placeholder）固定亮色選取樣式 */
 math-field {
   color-scheme: light;
+  font-family: var(--font-noto-tc), "Noto Sans TC", ui-sans-serif, system-ui, sans-serif;
+  --text-font-family: var(--font-noto-tc), "Noto Sans TC", ui-sans-serif, system-ui, sans-serif;
   --hue: 168;
   --caret-color: #0d8c7a;
-  --selection-color: #0b3d36;
-  --selection-background-color: #c5ede4;
-  --contains-highlight-color: #0d8c7a;
-  --contains-highlight-background-color: #e7f6f2;
+  --selection-color: #111827;
+  --selection-background-color: #e5e7eb;
+  --highlight-text: transparent;
+  --text-highlight-background-color: transparent;
+  --contains-highlight-color: inherit;
+  --contains-highlight-background-color: transparent;
   --placeholder-color: #0d8c7a;
 }
 
 body[theme="dark"] math-field,
 html[theme="dark"] math-field {
   color-scheme: light;
+  font-family: var(--font-noto-tc), "Noto Sans TC", ui-sans-serif, system-ui, sans-serif;
+  --text-font-family: var(--font-noto-tc), "Noto Sans TC", ui-sans-serif, system-ui, sans-serif;
   --hue: 168;
   --caret-color: #0d8c7a;
-  --selection-color: #0b3d36;
-  --selection-background-color: #c5ede4;
-  --contains-highlight-color: #0d8c7a;
-  --contains-highlight-background-color: #e7f6f2;
+  --selection-color: #111827;
+  --selection-background-color: #e5e7eb;
+  --highlight-text: transparent;
+  --text-highlight-background-color: transparent;
+  --contains-highlight-color: inherit;
+  --contains-highlight-background-color: transparent;
   --placeholder-color: #0d8c7a;
 }
 

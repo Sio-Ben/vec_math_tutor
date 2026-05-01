@@ -1134,8 +1134,9 @@ export default function PracticePage() {
           instanceKey={`thought-${questionIndex}-${q.id}`}
           value={thought}
           onChange={setThought}
-          defaultMode="math"
-          smartMode
+          defaultMode="text"
+          smartMode={false}
+          normalizeVectorText
           keyboardHint={q.kind === "mcq"}
           fieldClassName="w-full min-h-[7rem] rounded-xl border border-[var(--border)] bg-[var(--bg-inset)] px-4 py-3 text-base text-[var(--txt)] shadow-inner outline-none focus:border-[var(--learn-500)] focus:ring-2 focus:ring-[var(--learn-500)]/20"
         />
